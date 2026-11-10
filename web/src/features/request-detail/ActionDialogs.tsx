@@ -1,11 +1,11 @@
 // Dialogs are mounted only while open (parent renders them conditionally),
 // so their local state starts fresh every time without reset effects.
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError } from '@/shared/api/client';
 import { qk, useMeta } from '@/shared/api/queries';
 import type { RequestDetail, Status } from '@/shared/api/types';
-import { parseRequestNumber, statusLabel } from '@/shared/lib/status';
+import { actionLabel, parseRequestNumber, statusLabel } from '@/shared/lib/status';
 import { ru } from '@/shared/i18n/ru';
 import { Button, Counter, Dialog, FormField, Input, Select, StatusChip, Textarea, useToast } from '@/shared/ui';
 import { useUser } from '@/features/auth/AuthProvider';
@@ -30,6 +30,8 @@ export function CloseDialog({
   const [dupInput, setDupInput] = useState('');
   const [errors, setErrors] = useState<{ result?: string; dup?: string; form?: string }>({});
   const [resolving, setResolving] = useState(false);
+  const resultRef = useRef<HTMLTextAreaElement>(null);
+  const dupRef = useRef<HTMLInputElement>(null);
   const m = useRequestMutations(request.id).status;
   const toast = useToast();
   const user = useUser();
@@ -79,10 +81,16 @@ export function CloseDialog({
     let dupId: number | undefined;
     if (isDup) {
       const id = await resolveDuplicateId();
-      if (id === null) return;
+      if (id === null) {
+        dupRef.current?.focus();
+        return;
+      }
       dupId = id;
     }
-    if (next.result) return;
+    if (next.result) {
+      resultRef.current?.focus();
+      return;
+    }
     m.mutate(
       { status, result_text: result, duplicate_of_id: dupId },
       {
@@ -105,7 +113,7 @@ export function CloseDialog({
       open={open}
       onOpenChange={onOpenChange}
       busy={m.isPending}
-      title={ru.detail.closeTitle(statusLabel(status))}
+      title={ru.detail.closeTitles[status] ?? statusLabel(status)}
       description={ru.detail.closeLead}
       footer={
         <>
@@ -113,15 +121,15 @@ export function CloseDialog({
             {ru.common.cancel}
           </Button>
           <Button type="submit" form="close-form" variant={status === 'declined' ? 'danger' : 'primary'} loading={m.isPending || resolving}>
-            {ru.statusActions[status]}
+            {isDup ? ru.detail.closeTitles.duplicate : ru.statusActions[status]}
           </Button>
         </>
       }
     >
       <form id="close-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
         {isDup && (
-          <FormField label={ru.detail.duplicateLabel} hint={ru.detail.duplicateHint} error={errors.dup}>
-            <Input value={dupInput} onChange={(e) => setDupInput(e.target.value)} autoComplete="off" autoFocus inputMode="text" />
+          <FormField label={ru.detail.duplicateLabel} required hint={ru.detail.duplicateHint} error={errors.dup}>
+            <Input ref={dupRef} value={dupInput} onChange={(e) => setDupInput(e.target.value)} autoComplete="off" autoFocus inputMode="text" />
           </FormField>
         )}
         {isDup && similar.length > 0 && (
@@ -147,8 +155,14 @@ export function CloseDialog({
             </ul>
           </div>
         )}
-        <FormField label={ru.detail.resultLabel} error={errors.result} aside={<Counter value={text.length} max={RESULT_MAX} />}>
-          <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} autoFocus={!isDup} />
+        <FormField
+          label={ru.detail.resultLabel}
+          required
+          hint={ru.detail.closeHints[status]}
+          error={errors.result}
+          aside={<Counter value={text.length} max={RESULT_MAX} />}
+        >
+          <Textarea ref={resultRef} value={text} onChange={(e) => setText(e.target.value)} rows={5} autoFocus={!isDup} />
         </FormField>
         {errors.form && !errors.result && !errors.dup && (
           <p role="alert" className="text-sm text-danger">
@@ -160,51 +174,76 @@ export function CloseDialog({
   );
 }
 
-/** "Запросить уточнение" → comment kind=question (sets needs_info). */
-export function QuestionDialog({ request, open, onOpenChange }: { request: RequestDetail; open: boolean; onOpenChange: (o: boolean) => void }) {
-  const [text, setText] = useState('');
+/**
+ * Stage move (take into work, pass to decision, start implementation, return...): explains what will happen
+ * and lets the staff member add an optional one-line message that is posted as a normal comment after the status change.
+ */
+export function MoveDialog({
+  request,
+  to,
+  open,
+  onOpenChange,
+}: {
+  request: RequestDetail;
+  to: Status;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const [message, setMessage] = useState('');
   const [error, setError] = useState<string>();
-  const m = useRequestMutations(request.id).comment;
+  const [busy, setBusy] = useState(false);
+  const { status, comment } = useRequestMutations(request.id);
   const toast = useToast();
+  const label = actionLabel(request.status, to);
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
-    if (m.isPending) return;
-    const body = text.trim();
-    if (!body) return setError(ru.detail.questionRequired);
+    if (busy) return;
+    const body = message.trim();
     if (body.length > COMMENT_MAX) return setError(ru.detail.composerMax(COMMENT_MAX));
-    m.mutate(
-      { kind: 'question', body },
-      {
-        onSuccess: () => {
-          toast.success(ru.detail.sentQuestion);
-          onOpenChange(false);
-        },
-        onError: (err) => setError(err instanceof ApiError && err.fields.body ? err.fields.body : err.message),
-      },
-    );
+    setBusy(true);
+    setError(undefined);
+    try {
+      await status.mutateAsync({ status: to });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : ru.errors.generic);
+      setBusy(false);
+      return;
+    }
+    toast.success(ru.detail.statusChanged(statusLabel(to)));
+    if (body) {
+      try {
+        await comment.mutateAsync({ kind: 'comment', body });
+      } catch {
+        toast.error(ru.detail.moveMessageFailed);
+      }
+    }
+    setBusy(false);
+    onOpenChange(false);
   }
+
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      busy={m.isPending}
-      title={ru.detail.questionTitle}
-      description={ru.detail.questionLead}
+      busy={busy}
+      size="sm"
+      title={label}
+      description={ru.detail.moveLead(statusLabel(to))}
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)} disabled={m.isPending}>
+          <Button onClick={() => onOpenChange(false)} disabled={busy}>
             {ru.common.cancel}
           </Button>
-          <Button type="submit" form="question-form" variant="primary" loading={m.isPending}>
-            {ru.detail.composerSend}
+          <Button type="submit" form="move-form" variant="primary" loading={busy}>
+            {label}
           </Button>
         </>
       }
     >
-      <form id="question-form" onSubmit={submit} noValidate>
-        <FormField label={ru.detail.questionLabel} error={error}>
-          <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} autoFocus />
+      <form id="move-form" onSubmit={submit} noValidate>
+        <FormField label={ru.detail.moveMessageLabel} hint={ru.detail.moveMessageHint} optional error={error}>
+          <Input value={message} onChange={(e) => setMessage(e.target.value)} autoComplete="off" autoFocus />
         </FormField>
       </form>
     </Dialog>

@@ -64,7 +64,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             </RToast.Close>
           </RToast.Root>
         ))}
-        <RToast.Viewport className="fixed bottom-0 right-0 z-[60] flex w-full max-w-sm flex-col gap-2 p-4 outline-none max-md:bottom-16" />
+        <RToast.Viewport label={`${ru.notifications.title} ({hotkey})`} className="fixed bottom-0 right-0 z-[60] flex w-full max-w-sm flex-col gap-2 p-4 outline-none max-md:bottom-16" />
       </RToast.Provider>
     </Ctx.Provider>
   );

@@ -120,7 +120,7 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
                   <p className="whitespace-pre-line break-words text-sm leading-relaxed text-text">{item.text}</p>
                 </div>
               ) : (
-                <div className="mt-1 text-sm text-muted">
+                <div className="mt-1 text-sm text-muted [overflow-wrap:anywhere]">
                   {item.kind === 'status_changed' && item.to_status ? (
                     <span className="flex flex-wrap items-center gap-2">
                       <span>{ru.timeline.status_changed}:</span>
@@ -138,7 +138,7 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
                     </span>
                   )}
                   {item.kind === 'status_changed' && item.text && (
-                    <p className="mt-2 whitespace-pre-line rounded-lg bg-surface-2 px-3 py-2 text-sm text-text">{item.text}</p>
+                    <p className="mt-2 whitespace-pre-line break-words rounded-lg bg-surface-2 px-3 py-2 text-sm text-text">{item.text}</p>
                   )}
                 </div>
               )}

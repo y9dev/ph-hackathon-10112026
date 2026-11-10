@@ -1,6 +1,6 @@
 import * as RDialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { cn } from '@/shared/lib/cn';
 import { ru } from '@/shared/i18n/ru';
 
@@ -16,8 +16,27 @@ export interface DialogProps {
   busy?: boolean;
 }
 
-/** Modal dialog: focus is trapped and returned to the trigger by Radix. */
+/**
+ * Modal dialog: focus is trapped while open. Dialogs are usually mounted by a parent state flag (no Radix Trigger),
+ * so the element focused at mount time is remembered and refocused on close (Esc, Cancel or success).
+ * If that element is gone (e.g. the action button disappeared after a status change) focus moves to the
+ * nearest `[data-dialog-fallback]` element, then to <main>.
+ */
 export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'md', busy }: DialogProps) {
+  const opener = useRef<HTMLElement | null>(null);
+  // Layout effects of the parent run before the passive effect in which Radix moves focus into the dialog.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const a = document.activeElement;
+    opener.current = a instanceof HTMLElement && a !== document.body ? a : null;
+  }, [open]);
+  function restoreFocus(e: Event) {
+    const target = opener.current;
+    e.preventDefault();
+    opener.current = null;
+    if (target && target.isConnected) target.focus();
+    else (document.querySelector<HTMLElement>('[data-dialog-fallback]') ?? document.getElementById('main'))?.focus();
+  }
   return (
     <RDialog.Root open={open} onOpenChange={(o) => (!busy || o ? onOpenChange(o) : undefined)}>
       <RDialog.Portal>
@@ -30,6 +49,8 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             size === 'md' && 'max-w-lg',
             size === 'lg' && 'max-w-2xl',
           )}
+          aria-modal="true"
+          onCloseAutoFocus={restoreFocus}
           onPointerDownOutside={(e) => busy && e.preventDefault()}
           onEscapeKeyDown={(e) => busy && e.preventDefault()}
           {...(description ? {} : { 'aria-describedby': undefined })}
@@ -40,7 +61,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
               {description && <RDialog.Description className="mt-1 text-sm text-muted">{description}</RDialog.Description>}
             </div>
             <RDialog.Close
-              className="-mr-2 -mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-text max-md:h-11 max-md:w-11"
+              className="-mr-2 -mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-text max-md:h-11 max-md:w-11"
               aria-label={ru.common.close}
               disabled={busy}
             >

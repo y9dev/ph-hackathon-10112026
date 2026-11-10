@@ -2,11 +2,10 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Plus, Pencil, Trash2, Route } from 'lucide-react';
+import { Plus, Pencil, Trash2, Route, TriangleAlert } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
 import { qk } from '@/shared/api/queries';
-import type { RoutingRule } from '@/shared/api/types';
-import { formatHours } from '@/shared/lib/format';
+import type { Category, RoutingRule } from '@/shared/api/types';
 import { ru } from '@/shared/i18n/ru';
 import { Button, Dialog, EmptyState, ErrorState, FormField, Input, Select, Switch, useToast } from '@/shared/ui';
 import { ActiveBadge, FormAlert, TableShell, TableSkeleton, Td, Th } from './common';
@@ -15,8 +14,24 @@ import { ruleSchema, type RuleValues } from './schemas';
 const ANY = '__any';
 const HEAD = '__head';
 
+/** Active categories that no active rule covers (a rule without a type covers both). A partly covered category names the missing type. */
+export function categoriesWithoutRule(categories: Category[], rules: RoutingRule[]): string[] {
+  const out: string[] = [];
+  for (const c of categories.filter((x) => x.active)) {
+    const mine = rules.filter((r) => r.active && r.category_id === c.id);
+    if (mine.some((r) => r.request_type === null)) continue;
+    const have = new Set(mine.map((r) => r.request_type));
+    if (have.has('problem') && have.has('idea')) continue;
+    if (have.size === 0) out.push(c.name);
+    else out.push(`${c.name} (${ru.admin.noRuleType(ru.types[have.has('problem') ? 'idea' : 'problem'].toLowerCase())})`);
+  }
+  return out;
+}
+
 export function RulesTab() {
   const rules = useQuery({ queryKey: [...qk.admin, 'rules'], queryFn: api.adminRules });
+  const cats = useQuery({ queryKey: [...qk.admin, 'categories'], queryFn: api.adminCategories });
+  const uncovered = rules.data && cats.data ? categoriesWithoutRule(cats.data.items, rules.data.items) : [];
   const [editing, setEditing] = useState<RoutingRule | 'new' | null>(null);
   const [deleting, setDeleting] = useState<RoutingRule | null>(null);
 
@@ -30,6 +45,12 @@ export function RulesTab() {
           {ru.admin.addRule}
         </Button>
       </div>
+      {uncovered.length > 0 && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-text" data-testid="no-rule-banner">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          <p>{ru.admin.noRule(uncovered.join(', '))}</p>
+        </div>
+      )}
       {rules.isPending ? (
         <TableSkeleton />
       ) : rules.isError ? (
@@ -47,7 +68,8 @@ export function RulesTab() {
               <Th>{ru.admin.ruleType}</Th>
               <Th>{ru.admin.ruleDept}</Th>
               <Th>{ru.admin.ruleAssignee}</Th>
-              <Th>{ru.admin.sla}</Th>
+              <Th className="text-right">{ru.admin.ruleFirst}</Th>
+              <Th className="text-right">{ru.admin.ruleResolution}</Th>
               <Th>{ru.admin.status}</Th>
               <Th className="w-28 text-right">
                 <span className="sr-only">{ru.admin.actions}</span>
@@ -63,9 +85,8 @@ export function RulesTab() {
                 <Td>{r.request_type ? ru.types[r.request_type] : ru.admin.ruleTypeAny}</Td>
                 <Td>{r.department_name}</Td>
                 <Td>{r.assignee_name ?? <span className="text-muted">{ru.admin.ruleAssigneeHead}</span>}</Td>
-                <Td className="tabular whitespace-nowrap">
-                  {formatHours(r.first_response_hours)} / {formatHours(r.resolution_hours)}
-                </Td>
+                <Td className="tabular whitespace-nowrap text-right">{r.first_response_hours}</Td>
+                <Td className="tabular whitespace-nowrap text-right">{r.resolution_hours}</Td>
                 <Td>
                   <ActiveBadge active={r.active} />
                 </Td>
@@ -218,10 +239,10 @@ function RuleDialog({ rule, onClose }: { rule: RoutingRule | 'new' | null; onClo
               )}
             />
           </FormField>
-          <FormField label={ru.admin.ruleFirst} error={err.first_response_hours?.message}>
+          <FormField label={ru.admin.ruleFirst} hint={ru.admin.ruleHoursHint} error={err.first_response_hours?.message}>
             <Input type="number" inputMode="numeric" min={1} step={1} {...form.register('first_response_hours', { valueAsNumber: true })} />
           </FormField>
-          <FormField label={ru.admin.ruleResolution} error={err.resolution_hours?.message}>
+          <FormField label={ru.admin.ruleResolution} hint={ru.admin.ruleHoursHint} error={err.resolution_hours?.message}>
             <Input type="number" inputMode="numeric" min={1} step={1} {...form.register('resolution_hours', { valueAsNumber: true })} />
           </FormField>
         </div>

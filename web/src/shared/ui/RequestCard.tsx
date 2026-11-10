@@ -45,7 +45,7 @@ export function RequestCard({ r, variant }: { r: RequestSummary; variant: 'autho
         {r.author.anonymous && <AnonymousBadge />}
       </div>
       <div className="mt-2 flex items-start justify-between gap-3">
-        <h3 className="min-w-0 text-base font-semibold text-text group-hover:text-brand">{r.title}</h3>
+        <h2 className="min-w-0 break-words text-base font-semibold text-text group-hover:text-brand">{r.title}</h2>
         <ChevronRight className="mt-0.5 h-5 w-5 shrink-0 text-muted transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">

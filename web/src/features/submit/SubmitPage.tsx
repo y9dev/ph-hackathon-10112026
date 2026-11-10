@@ -8,6 +8,7 @@ import { api, ApiError } from '@/shared/api/client';
 import { qk, useMeta } from '@/shared/api/queries';
 import type { Category, Meta } from '@/shared/api/types';
 import { cn } from '@/shared/lib/cn';
+import { formatDateTime } from '@/shared/lib/format';
 import { useDebounced } from '@/shared/lib/useDebounced';
 import { ru } from '@/shared/i18n/ru';
 import {
@@ -208,15 +209,25 @@ function SubmitForm({ meta }: { meta: Meta }) {
             control={control}
             name="category_id"
             render={({ field, fieldState }) => (
-              <CategoryPicker
-                categories={categories}
-                value={field.value}
-                onChange={(v) => {
-                  field.onChange(v);
-                  field.onBlur();
-                }}
-                invalid={Boolean(fieldState.error)}
-              />
+              <>
+                <CategoryPicker
+                  categories={categories}
+                  value={field.value}
+                  onChange={(v) => {
+                    field.onChange(v);
+                    field.onBlur();
+                  }}
+                  invalid={Boolean(fieldState.error)}
+                />
+                {/* Mobile: the full "what happens next" panel is far below, so show the routing right under the choice. */}
+                {selectedCategory && preview.data && (
+                  <p className="text-sm text-text lg:hidden" data-testid="routing-compact">
+                    {preview.data.routed && preview.data.department
+                      ? ru.submit.nextCompact(preview.data.department.name, formatDateTime(preview.data.first_response_due))
+                      : ru.submit.nextCompactUnrouted}
+                  </p>
+                )}
+              </>
             )}
           />
         </FormField>
@@ -335,7 +346,7 @@ function CategoryPicker({
     }
   }
   return (
-    <div id="category-group" role="radiogroup" aria-label={ru.submit.category} aria-invalid={invalid || undefined} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div id="category-group" role="radiogroup" aria-label={ru.submit.category} aria-invalid={invalid || undefined} className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-3">
       {categories.map((c, i) => {
         const selected = c.id === value;
         return (
@@ -351,7 +362,7 @@ function CategoryPicker({
             onClick={() => onChange(c.id)}
             onKeyDown={(e) => onKey(e, i)}
             className={cn(
-              'group relative flex items-start gap-3 rounded-xl border bg-surface p-4 text-left transition-[border-color,background-color,box-shadow] duration-150',
+              'group relative flex min-h-11 items-start gap-2 rounded-xl border bg-surface p-3 text-left transition-[border-color,background-color,box-shadow] duration-150 sm:gap-3 sm:p-4',
               selected
                 ? 'border-brand bg-brand-soft/60 ring-1 ring-brand'
                 : invalid
@@ -361,18 +372,18 @@ function CategoryPicker({
           >
             <span
               className={cn(
-                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors duration-150',
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 sm:h-9 sm:w-9',
                 selected ? 'bg-brand text-on-brand' : 'bg-surface-2 text-muted group-hover:text-text',
               )}
               aria-hidden="true"
             >
               <CategoryIcon name={c.icon} className="h-5 w-5" />
             </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold text-text">{c.name}</span>
-              <span className="mt-0.5 block text-xs leading-snug text-muted">{c.description}</span>
+            <span className="min-w-0 pr-4">
+              <span className="block break-words text-sm font-semibold text-text">{c.name}</span>
+              <span className="mt-0.5 block text-xs leading-snug text-muted max-sm:hidden">{c.description}</span>
             </span>
-            {selected && <Check className="absolute right-3 top-3 h-4 w-4 text-brand" aria-hidden="true" />}
+            {selected && <Check className="absolute right-2 top-2 h-4 w-4 text-brand sm:right-3 sm:top-3" aria-hidden="true" />}
           </button>
         );
       })}

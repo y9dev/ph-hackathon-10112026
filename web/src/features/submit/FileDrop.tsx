@@ -93,6 +93,7 @@ export function FileDrop({
           className="sr-only"
           tabIndex={-1}
           aria-hidden="true"
+          aria-label={ru.submit.files}
           onChange={(e) => {
             if (e.target.files) add(e.target.files);
             e.target.value = '';

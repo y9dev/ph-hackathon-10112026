@@ -76,7 +76,14 @@ export function StageStepper({ status, className }: { status: Status; className?
                 {ru.lifecycle.stages[stage]}
               </p>
               <p className="text-xs text-muted">
-                {STATE_TEXT[st]}
+                {st === 'skipped' ? (
+                  <>
+                    <span aria-hidden="true">{STATE_TEXT.skipped}</span>
+                    <span className="sr-only">{ru.lifecycle.stateSkippedSr}</span>
+                  </>
+                ) : (
+                  STATE_TEXT[st]
+                )}
               </p>
               {stage === 'development' && waiting && (
                 <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
@@ -104,7 +111,6 @@ export function StageStepper({ status, className }: { status: Status; className?
           </span>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-text">{ru.lifecycle.final[final]}</p>
-            <p className="text-xs text-muted">{ru.lifecycle.stateCurrent}</p>
           </div>
         </li>
       )}
@@ -137,7 +143,7 @@ export function StageStepperCompact({ status, className }: { status: Status; cla
               )}
             >
               <span className="sr-only">
-                {ru.lifecycle.stages[stage]}: {STATE_TEXT[st]}
+                {ru.lifecycle.stages[stage]}: {st === 'skipped' ? ru.lifecycle.stateSkippedSr : STATE_TEXT[st]}
               </span>
             </li>
           );

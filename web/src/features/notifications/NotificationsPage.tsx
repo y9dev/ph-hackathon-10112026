@@ -39,7 +39,6 @@ export default function NotificationsPage() {
       />
       <SegmentedControl
         className="mb-4 max-w-xs"
-        size="sm"
         aria-label={ru.notifications.title}
         value={filter}
         onChange={setFilter}

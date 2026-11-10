@@ -10,16 +10,16 @@
   --text: #16232b;
   --text-muted: #52636e;
 
-  --brand: #0b7a75;
-  --brand-hover: #096762;
+  --brand: #0a6e69;
+  --brand-hover: #085a56;
   --brand-soft: #ddf3f1;
   --on-brand: #ffffff;
 
   --info: #2457c5;
   --info-soft: #e6edfb;
-  --success: #1b7f43;
+  --success: #176a38;
   --success-soft: #e3f3e9;
-  --warning: #b45309;
+  --warning: #9a4507;
   --warning-soft: #fdf0e1;
   --danger: #b42318;
   --danger-soft: #fce8e6;
@@ -29,13 +29,13 @@
   --status-new-soft: #e6edfb;
   --status-in-review: #6d3fc4;
   --status-in-review-soft: #efe8fb;
-  --status-needs-info: #b45309;
+  --status-needs-info: #9a4507;
   --status-needs-info-soft: #fdf0e1;
   --status-decision: #a1306b;
   --status-decision-soft: #fbe6f0;
-  --status-in-progress: #0a706b;
+  --status-in-progress: #0a6e69;
   --status-in-progress-soft: #ddf3f1;
-  --status-implemented: #1b7f43;
+  --status-implemented: #176a38;
   --status-implemented-soft: #e3f3e9;
   --status-declined: #52636e;
   --status-declined-soft: #eef2f4;
@@ -44,11 +44,11 @@
   --status-closed: #4a5a64;
   --status-closed-soft: #eef2f4;
 
-  --chart-1: #0b7a75;
+  --chart-1: #0a6e69;
   --chart-2: #2457c5;
   --chart-track: #eef2f4;
 
-  --focus: #0b7a75;
+  --focus: #0a6e69;
   --overlay: rgb(16 35 43 / 0.45);
   --shadow-sm: 0 1px 2px rgb(16 35 43 / 0.08);
   --shadow-md: 0 4px 16px rgb(16 35 43 / 0.1);

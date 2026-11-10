@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useState, type FormEvent } from 'react';
+import { forwardRef, useEffect, useRef, useState, type FormEvent } from 'react';
 import { MessageSquare, MessageCircleQuestion, Reply, Lock, Send, ClipboardList } from 'lucide-react';
 import type { CommentKind, RequestDetail } from '@/shared/api/types';
 import { ApiError } from '@/shared/api/client';
@@ -24,15 +24,32 @@ const SENT: Record<CommentKind, string> = {
 };
 
 /** Order kinds so the most likely action is first; answer wins when the author is asked. */
-export function defaultKind(kinds: CommentKind[]): CommentKind | undefined {
+export function defaultKind(kinds: CommentKind[], status?: RequestDetail['status']): CommentKind | undefined {
   if (kinds.includes('answer')) return 'answer';
+  // During implementation the staff's main action is a progress report.
+  if (status === 'in_progress' && kinds.includes('report')) return 'report';
   if (kinds.includes('comment')) return 'comment';
   return kinds[0];
 }
 
-export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail }>(function Composer({ request }, ref) {
+/** Asks the composer to switch to a kind (and focus its field). `n` makes repeated requests distinct. */
+export interface KindRequest {
+  kind: CommentKind;
+  n: number;
+}
+
+export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail; kindRequest?: KindRequest }>(function Composer(
+  { request, kindRequest },
+  ref,
+) {
   const kinds = request.allowed_comment_kinds;
-  const [kind, setKind] = useState<CommentKind | undefined>(() => defaultKind(kinds));
+  const [kind, setKind] = useState<CommentKind | undefined>(() => defaultKind(kinds, request.status));
+  const fieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const setRefs = (el: HTMLTextAreaElement | null) => {
+    fieldRef.current = el;
+    if (typeof ref === 'function') ref(el);
+    else if (ref) ref.current = el;
+  };
   const [text, setText] = useState('');
   const [error, setError] = useState<string | undefined>();
   const { comment } = useRequestMutations(request.id);
@@ -41,9 +58,31 @@ export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail
   // Keep the selected kind valid when allowed kinds change (e.g. after an answer).
   const kindsKey = kinds.join(',');
   useEffect(() => {
-    setKind((k) => (k && kinds.includes(k) ? k : defaultKind(kinds)));
+    setKind((k) => (k && kinds.includes(k) ? k : defaultKind(kinds, request.status)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kindsKey]);
+
+  // Moving to implementation preselects "Отчёт".
+  const prevStatus = useRef(request.status);
+  useEffect(() => {
+    if (prevStatus.current === request.status) return;
+    prevStatus.current = request.status;
+    if (request.status === 'in_progress' && kinds.includes('report')) setKind('report');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request.status]);
+
+  // An external request (e.g. "Запросить уточнение") selects the tab and focuses the field.
+  useEffect(() => {
+    if (!kindRequest || kindRequest.n === 0) return;
+    if (kinds.includes(kindRequest.kind)) {
+      setKind(kindRequest.kind);
+      setError(undefined);
+    }
+    const el = fieldRef.current;
+    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }); // absent in jsdom
+    el?.focus({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kindRequest]);
 
   if (!kind || kinds.length === 0) return null;
 
@@ -86,7 +125,6 @@ export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail
       {kinds.length > 1 && (
         <SegmentedControl
           className="mb-4"
-          size="sm"
           aria-label={ru.detail.composerKind}
           value={kind}
           onChange={(k) => {
@@ -106,7 +144,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail
         aside={text.length > COMMENT_MAX * 0.8 ? <Counter value={text.length} max={COMMENT_MAX} /> : undefined}
       >
         <Textarea
-          ref={ref}
+          ref={setRefs}
           rows={3}
           value={text}
           onChange={(e) => setText(e.target.value)}

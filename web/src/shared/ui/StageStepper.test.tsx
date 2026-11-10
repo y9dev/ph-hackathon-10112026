@@ -48,6 +48,34 @@ describe('StageStepper', () => {
   });
 });
 
+describe('StageStepper terminal states', () => {
+  it('shows the final item without "текущий этап" and keeps it as the current step', () => {
+    render(<StageStepper status="closed" />);
+    const final = screen.getByRole('list', { name: 'Этапы обращения' }).querySelector('[data-stage="final"]')!;
+    expect(final).toHaveTextContent('Закрыто');
+    expect(final).not.toHaveTextContent('текущий этап');
+    expect(final).toHaveAttribute('aria-current', 'step');
+  });
+  it('shows earlier stages neutral ("—") for declined / duplicate / closed, never "не пройден"', () => {
+    for (const s of ['declined', 'duplicate', 'closed'] as const) {
+      const { container, unmount } = render(<StageStepper status={s} />);
+      const stages = container.querySelectorAll('[data-stage]:not([data-stage="final"])');
+      expect(stages).toHaveLength(3);
+      stages.forEach((li) => {
+        expect(li).toHaveAttribute('data-state', 'skipped');
+        expect(li).toHaveTextContent('—');
+        expect(li).not.toHaveTextContent('не пройден');
+        expect(li).not.toHaveTextContent('текущий этап');
+      });
+      unmount();
+    }
+  });
+  it('implemented keeps all three stages done', () => {
+    const { container } = render(<StageStepper status="implemented" />);
+    expect(container.querySelectorAll('[data-state="done"]')).toHaveLength(3);
+  });
+});
+
 describe('StageStepperCompact', () => {
   it('names the current stage in text', () => {
     render(<StageStepperCompact status="in_progress" />);

@@ -46,6 +46,20 @@ export async function openFromInbox(page: Page, c: Created) {
   await expect(page.getByRole('heading', { level: 1, name: c.title })).toBeVisible();
 }
 
+/**
+ * Stage moves open a confirm dialog with an optional one-line "Сообщение автору".
+ * Clicks the staff action, optionally types a message and confirms with the same-named dialog button.
+ */
+export async function moveStage(page: Page, label: string, message?: string) {
+  await page.getByRole('button', { name: label, exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: label })).toBeVisible();
+  await expect(dialog.getByText('Автор получит уведомление')).toBeVisible();
+  if (message) await dialog.getByLabel('Сообщение автору').fill(message);
+  await dialog.getByRole('button', { name: label, exact: true }).click();
+  await expect(dialog).toBeHidden();
+}
+
 export function uniqueTitle(prefix: string) {
   return `${prefix} ${Date.now().toString(36).slice(-5)}`;
 }

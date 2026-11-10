@@ -89,7 +89,7 @@ export default function MyRequestsPage() {
               )}
             >
               {LABEL[f]}
-              <span className="tabular text-xs opacity-80">{counts[f]}</span>
+              <span className="tabular text-xs">{counts[f]}</span>
             </button>
           ))}
         </div>

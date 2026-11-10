@@ -91,7 +91,22 @@ test('staff screens', async ({ page }) => {
 
   await page.goto('/requests/6');
   await page.getByRole('button', { name: 'Отклонить' }).click();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Отклонить обращение' })).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: 'Отклонить' }).click();
   await expect(page.getByText('Без решения закрыть нельзя').first()).toBeVisible();
   await page.screenshot({ path: `${OUT}/13-close-dialog-validation-1280.png` });
+});
+
+test('long theme title does not overflow request detail (1280 and 375)', async ({ page }) => {
+  await loginAs(page, ROLES.admin);
+  await page.goto('/requests/8');
+  await expect(page.getByRole('heading', { name: 'Работа с обращением' })).toBeVisible();
+  const longTheme = `Тема${'Оченьдлинноеназваниебезпробелов'.repeat(4)}`.slice(0, 140);
+  await page.getByRole('button', { name: /Добавить в тему|^Тема:/ }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Новая тема').fill(longTheme);
+  await dialog.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('button', { name: /^Тема: Тема/ })).toBeVisible();
+  await shoot(page, '16-detail-staff-long-theme');
 });

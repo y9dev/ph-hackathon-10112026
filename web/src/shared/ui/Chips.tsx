@@ -85,7 +85,7 @@ export function Badge({
   return (
     <span className={cn(chipBase, BADGE_STYLE[tone], className)}>
       {icon}
-      {children}
+      <span className="min-w-0 truncate">{children}</span>
     </span>
   );
 }

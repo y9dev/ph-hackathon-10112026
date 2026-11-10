@@ -18,7 +18,8 @@ export function Switch({ checked, onCheckedChange, label, description, disabled,
   const sid = id ?? `sw${auto.replace(/:/g, '')}`;
   const descId = description ? `${sid}-desc` : undefined;
   return (
-    <div className={cn('flex items-start gap-3', className)}>
+    // The whole row is one hit area (>= 44px): the label stretches over it.
+    <div className={cn('relative flex min-h-11 items-start gap-3', className)}>
       <RSwitch.Root
         id={sid}
         checked={checked}
@@ -26,7 +27,7 @@ export function Switch({ checked, onCheckedChange, label, description, disabled,
         disabled={disabled}
         aria-describedby={descId}
         className={cn(
-          'relative mt-0.5 inline-flex h-6 w-10 shrink-0 items-center rounded-full border transition-colors duration-150',
+          'relative z-[1] mt-2.5 inline-flex h-6 w-10 shrink-0 items-center rounded-full border transition-colors duration-150',
           'border-border-strong bg-surface-2 data-[state=checked]:border-brand data-[state=checked]:bg-brand',
           'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50',
           // 44px touch area on mobile without changing the visual size
@@ -36,11 +37,11 @@ export function Switch({ checked, onCheckedChange, label, description, disabled,
         <RSwitch.Thumb className="block h-4 w-4 translate-x-1 rounded-full bg-surface shadow-sm ring-1 ring-border-strong transition-transform duration-150 data-[state=checked]:translate-x-5 data-[state=checked]:ring-0" />
       </RSwitch.Root>
       <div className="min-w-0">
-        <label htmlFor={sid} className="text-sm font-medium text-text">
+        <label htmlFor={sid} className="block cursor-pointer py-2.5 text-sm font-medium text-text after:absolute after:inset-0 after:content-['']">
           {label}
         </label>
         {description && (
-          <div id={descId} className="mt-1 text-sm text-muted">
+          <div id={descId} className="-mt-1 pb-2.5 text-sm text-muted">
             {description}
           </div>
         )}

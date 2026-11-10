@@ -16,7 +16,6 @@ export interface SegmentedControlProps<T extends string> {
   'aria-labelledby'?: string;
   'aria-describedby'?: string;
   invalid?: boolean;
-  size?: 'sm' | 'md';
   className?: string;
 }
 
@@ -26,7 +25,6 @@ export function SegmentedControl<T extends string>({
   onChange,
   options,
   invalid,
-  size = 'md',
   className,
   ...aria
 }: SegmentedControlProps<T>) {
@@ -75,8 +73,8 @@ export function SegmentedControl<T extends string>({
             onClick={() => onChange(o.value)}
             onKeyDown={(e) => onKey(e, i)}
             className={cn(
-              'flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-3 font-medium transition-[background-color,color,box-shadow] duration-150',
-              size === 'sm' ? 'h-8 text-sm max-md:h-11' : 'h-10 text-sm max-md:h-11',
+              'flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg px-3 font-medium transition-[background-color,color,box-shadow] duration-150',
+              'h-10 text-sm max-md:h-11',
               selected ? 'bg-surface text-text shadow-sm ring-1 ring-border' : 'text-muted hover:text-text',
             )}
           >

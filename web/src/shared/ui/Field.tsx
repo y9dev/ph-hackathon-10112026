@@ -15,6 +15,7 @@ interface FieldCtx {
   id: string;
   describedBy?: string;
   invalid: boolean;
+  required?: boolean;
 }
 const Ctx = createContext<FieldCtx | null>(null);
 export const FieldContext = Ctx;
@@ -31,6 +32,8 @@ export interface FormFieldProps {
   hint?: ReactNode;
   error?: string;
   optional?: boolean;
+  /** Marks the field as required (visible text + aria-required on the control). */
+  required?: boolean;
   /** Extra content on the label row (e.g. character counter). */
   aside?: ReactNode;
   className?: string;
@@ -40,7 +43,7 @@ export interface FormFieldProps {
   id?: string;
 }
 
-export function FormField({ label, hint, error, optional, aside, className, children, asFieldset, id }: FormFieldProps) {
+export function FormField({ label, hint, error, optional, required, aside, className, children, asFieldset, id }: FormFieldProps) {
   const auto = useId();
   const fid = id ?? `f${auto.replace(/:/g, '')}`;
   const hintId = hint ? `${fid}-hint` : undefined;
@@ -50,6 +53,7 @@ export function FormField({ label, hint, error, optional, aside, className, chil
     <>
       {label}
       {optional && <span className="ml-1 font-normal text-muted">({ru.common.optional})</span>}
+      {required && <span className="ml-1 font-normal text-muted">({ru.common.required})</span>}
     </>
   );
   const body = (
@@ -69,7 +73,7 @@ export function FormField({ label, hint, error, optional, aside, className, chil
           {hint}
         </p>
       )}
-      <Ctx.Provider value={{ id: fid, describedBy, invalid: Boolean(error) }}>{children}</Ctx.Provider>
+      <Ctx.Provider value={{ id: fid, describedBy, invalid: Boolean(error), required }}>{children}</Ctx.Provider>
       {error && <FieldError id={errId!}>{error}</FieldError>}
     </>
   );
@@ -108,6 +112,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
       id={rest.id ?? f?.id}
       aria-describedby={rest['aria-describedby'] ?? f?.describedBy}
       aria-invalid={f?.invalid || undefined}
+      aria-required={f?.required || undefined}
       className={cn(
         controlClasses,
         'h-10 px-3 text-base max-md:h-11',
@@ -130,6 +135,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
       id={rest.id ?? f?.id}
       aria-describedby={rest['aria-describedby'] ?? f?.describedBy}
       aria-invalid={f?.invalid || undefined}
+      aria-required={f?.required || undefined}
       className={cn(
         controlClasses,
         'min-h-24 resize-y px-3 py-2 text-base leading-relaxed',

@@ -19,6 +19,9 @@ export function activeDue(sla: SlaState): string {
 export function slaView(sla: SlaState, status: Status, now: Date = new Date()): SlaView {
   const due = activeDue(sla);
   const dueText = formatDateTime(due, now);
+  // In the decision / implementation stages the deadline is the resolution SLA of the whole request,
+  // not a deadline of the stage itself: say so, so it is not read as "decide by".
+  const resolutionStage = status === 'decision' || status === 'in_progress';
   const which = sla.first_responded_at ? ru.sla.resolution : ru.sla.firstResponse;
   switch (sla.state) {
     case 'overdue': {
@@ -27,7 +30,11 @@ export function slaView(sla: SlaState, status: Status, now: Date = new Date()): 
       return { tone: 'danger', label, description: `${label}: ${kind}` };
     }
     case 'soon':
-      return { tone: 'warning', label: ru.sla.soon(dueText), description: `${which} ${ru.sla.until(dueText)}` };
+      return {
+        tone: 'warning',
+        label: resolutionStage ? ru.sla.resolutionSoon(dueText) : ru.sla.soon(dueText),
+        description: `${which} ${ru.sla.until(dueText)}`,
+      };
     case 'paused':
       return { tone: 'info', label: ru.sla.paused, description: `${ru.sla.paused}: срок на паузе` };
     case 'done':
@@ -38,7 +45,11 @@ export function slaView(sla: SlaState, status: Status, now: Date = new Date()): 
       };
     case 'ok':
     default:
-      return { tone: 'neutral', label: ru.sla.until(dueText), description: `${which} ${ru.sla.until(dueText)}` };
+      return {
+        tone: 'neutral',
+        label: resolutionStage ? ru.sla.resolutionUntil(dueText) : ru.sla.until(dueText),
+        description: `${which} ${ru.sla.until(dueText)}`,
+      };
   }
 }
 

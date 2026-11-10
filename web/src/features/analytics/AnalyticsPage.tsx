@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { BarChart3, Layers, AlarmClock, Tags } from 'lucide-react';
 import { api } from '@/shared/api/client';
@@ -10,6 +11,7 @@ import { formatHours, formatPercent } from '@/shared/lib/format';
 import { STATUS_ICON, STATUSES } from '@/shared/lib/status';
 import { ru } from '@/shared/i18n/ru';
 import {
+  Badge,
   Button,
   Card,
   CardHeader,
@@ -28,6 +30,7 @@ import {
 } from '@/shared/ui';
 import { useUser } from '@/features/auth/AuthProvider';
 import { BarList, StackedBar, TrendChart } from './charts';
+import { confidenceOf, type Confidence } from './confidence';
 
 type Period = '7' | '30' | '90' | 'all';
 const PERIODS: Period[] = ['7', '30', '90', 'all'];
@@ -56,6 +59,16 @@ export function periodRange(p: Period, now = new Date()): { from?: string; to?: 
   return { from: isoDay(from), to: isoDay(now) };
 }
 
+function dayLabel(iso: string) {
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+/** "12.10.2026 – 10.11.2026" or "всё время". */
+export function rangeText(range: { from?: string; to?: string }): string {
+  return range.from && range.to ? `${dayLabel(range.from)} – ${dayLabel(range.to)}` : ru.analytics.rangeAll;
+}
+
 export default function AnalyticsPage() {
   useDocumentTitle(ru.analytics.title);
   const user = useUser();
@@ -81,7 +94,17 @@ export default function AnalyticsPage() {
 
   return (
     <div>
-      <PageHeader title={ru.analytics.title} lead={ru.analytics.lead} />
+      <PageHeader
+        title={ru.analytics.title}
+        lead={
+          <>
+            {ru.analytics.lead}
+            <span className="tabular mt-1 block text-sm font-medium text-text" data-testid="analytics-range">
+              {ru.analytics.rangeLabel}: {rangeText(range)}
+            </span>
+          </>
+        }
+      />
       <div className="mb-6 flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted" id="period-label">
@@ -89,7 +112,6 @@ export default function AnalyticsPage() {
           </span>
           <SegmentedControl
             aria-labelledby="period-label"
-            size="sm"
             className="sm:w-[440px]"
             value={period}
             onChange={(v) => setParam('period', v === '30' ? null : v)}
@@ -140,7 +162,10 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
-      <section aria-label={ru.analytics.kpis} className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">
+      <section aria-labelledby="kpi-title" className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">
+        <h2 id="kpi-title" className="col-span-full text-sm font-medium text-muted">
+          {ru.analytics.kpiScope}
+        </h2>
         <Kpi label={ru.analytics.kpiTotal} help={ru.analytics.kpiTotalHelp} value={String(k.total)} />
         <Kpi label={ru.analytics.kpiReviewed} help={ru.analytics.kpiReviewedHelp} value={formatPercent(k.reviewed_share)} bar={k.reviewed_share} />
         <Kpi
@@ -155,6 +180,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
           label={ru.analytics.kpiOverdue}
           help={ru.analytics.kpiOverdueHelp}
           value={String(k.overdue_count)}
+          sub={ru.analytics.kpiOverdueSub}
           tone={k.overdue_count > 0 ? 'danger' : undefined}
           href="/inbox?tab=all&overdue=1"
         />
@@ -163,7 +189,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader title={ru.analytics.byStatus} />
+          <CardHeader title={ru.analytics.byStatus} description={ru.analytics.scopePeriod} />
           <div className="px-6 pb-6 pt-4 max-sm:px-4">
             <StackedBar
               data={STATUSES.map((s) => {
@@ -181,7 +207,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
           </div>
         </Card>
         <Card>
-          <CardHeader title={ru.analytics.trend} />
+          <CardHeader title={ru.analytics.trend} description={ru.analytics.scopePeriod} />
           <div className="px-6 pb-6 pt-4 max-sm:px-4">
             <TrendChart data={data.timeseries} />
           </div>
@@ -190,7 +216,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader title={ru.analytics.byCategory} />
+          <CardHeader title={ru.analytics.byCategory} description={ru.analytics.scopePeriod} />
           <div className="px-6 pb-6 pt-4 max-sm:px-4">
             <BarList
               data={data.by_category.map((c) => {
@@ -207,7 +233,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
           </div>
         </Card>
         <Card>
-          <CardHeader title={ru.analytics.byDepartment} />
+          <CardHeader title={ru.analytics.byDepartment} description={ru.analytics.scopePeriod} />
           <div className="px-6 pb-6 pt-4 max-sm:px-4">
             <BarList
               data={data.by_department.map((d) => {
@@ -239,9 +265,10 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
       <Card>
         <CardHeader
           title={ru.analytics.overdueList}
+          description={data.overdue.length > 8 ? `${ru.analytics.scopeNow}. ${ru.analytics.overdueMore(8, data.overdue.length)}` : ru.analytics.scopeNow}
           action={
             data.overdue.length > 0 && (
-              <Link to="/inbox?tab=all&overdue=1" className="inline-flex min-h-9 items-center text-sm font-medium text-brand underline-offset-4 hover:underline">
+              <Link to="/inbox?tab=all&overdue=1" className="inline-flex min-h-10 items-center text-sm font-medium text-brand underline-offset-4 hover:underline max-md:min-h-11">
                 {ru.analytics.openInbox}
               </Link>
             )
@@ -318,17 +345,21 @@ function Kpi({
   );
 }
 
+const CONFIDENCE_TONE: Record<Confidence, 'success' | 'warning' | 'neutral'> = { high: 'success', medium: 'warning', low: 'neutral' };
+
 function GroupsCard({ q }: { q: UseQueryResult<ItemsOf<SuggestedGroup>> }) {
   const qc = useQueryClient();
   const toast = useToast();
   const confirm = useMutation({
     // Create the theme on the first request, then link the remaining requests to it.
-    mutationFn: async (g: SuggestedGroup) => {
-      const [first, ...rest] = g.requests;
+    // Only the requests the user kept ticked are linked.
+    mutationFn: async ({ g, ids }: { g: SuggestedGroup; ids: number[] }) => {
+      const picked = g.requests.filter((r) => ids.includes(r.id));
+      const [first, ...rest] = picked;
       const created = await api.linkTheme(first.id, { title: g.title });
       const themeId = created.theme?.id;
       if (themeId) for (const r of rest) await api.linkTheme(r.id, { theme_id: themeId });
-      return g;
+      return { ...g, requests: picked };
     },
     onSuccess: (g) => {
       toast.success(ru.analytics.groupConfirmed(g.title));
@@ -357,41 +388,94 @@ function GroupsCard({ q }: { q: UseQueryResult<ItemsOf<SuggestedGroup>> }) {
         ) : (
           <ul className="flex flex-col gap-3">
             {q.data.items.map((g) => (
-              <li key={g.key} className="rounded-xl border border-border p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-text">{g.title}</p>
-                    <p className="mt-1 text-xs text-muted">
-                      {ru.common.requests(g.count)} · {ru.analytics.groupScore(Math.round(g.score * 100))} · {g.categories.join(', ')}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => confirm.mutate(g)}
-                    loading={confirm.isPending && confirm.variables?.key === g.key}
-                    disabled={confirm.isPending && confirm.variables?.key !== g.key}
-                    icon={<Tags className="h-4 w-4" aria-hidden="true" />}
-                  >
-                    {ru.analytics.groupConfirm}
-                  </Button>
-                </div>
-                <ul className="mt-3 flex flex-col gap-1">
-                  {g.requests.map((r) => (
-                    <li key={r.id}>
-                      <Link to={`/requests/${r.id}`} className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 hover:bg-surface-2 max-md:min-h-11">
-                        <span className="tabular w-16 shrink-0 text-xs text-muted">{r.number}</span>
-                        <span className="min-w-0 flex-1 truncate text-text">{r.title}</span>
-                        <StatusChip status={r.status} className="max-sm:hidden" />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </li>
+              <GroupItem
+                key={g.key}
+                g={g}
+                pending={confirm.isPending && confirm.variables?.g.key === g.key}
+                otherPending={confirm.isPending && confirm.variables?.g.key !== g.key}
+                onConfirm={(ids) => confirm.mutate({ g, ids })}
+              />
             ))}
           </ul>
         )}
       </div>
     </Card>
+  );
+}
+
+function GroupItem({
+  g,
+  pending,
+  otherPending,
+  onConfirm,
+}: {
+  g: SuggestedGroup;
+  pending: boolean;
+  otherPending: boolean;
+  onConfirm: (ids: number[]) => void;
+}) {
+  const [off, setOff] = useState<number[]>([]);
+  const picked = g.requests.filter((r) => !off.includes(r.id));
+  const level = confidenceOf(g.score);
+  const enough = picked.length >= 2;
+  return (
+    <li className="rounded-xl border border-border p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="break-words font-semibold text-text">{g.title}</p>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <Badge tone={CONFIDENCE_TONE[level]}>{ru.analytics.confidence(ru.analytics.confidenceLevels[level])}</Badge>
+            <span>
+              {ru.common.requests(g.count)} · {ru.analytics.groupScore(Math.round(g.score * 100))} · {g.categories.join(', ')}
+            </span>
+          </p>
+        </div>
+        <Button
+          size="sm"
+          className="max-sm:w-full"
+          onClick={() => onConfirm(picked.map((r) => r.id))}
+          loading={pending}
+          disabled={otherPending || !enough}
+          icon={<Tags className="h-4 w-4" aria-hidden="true" />}
+        >
+          {ru.analytics.groupConfirm}
+        </Button>
+      </div>
+      <p className="mt-2 text-sm text-muted">{ru.analytics.groupReview}</p>
+      <ul className="mt-3 flex flex-col gap-1">
+        {g.requests.map((r) => {
+          const on = !off.includes(r.id);
+          return (
+            <li key={r.id} className="flex items-center gap-1">
+              <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center max-md:h-11 max-md:w-11">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={pending}
+                  onChange={() => setOff((cur) => (on ? [...cur, r.id] : cur.filter((x) => x !== r.id)))}
+                  aria-label={ru.analytics.groupInclude(r.number)}
+                  className="h-4 w-4 accent-[var(--brand)]"
+                />
+              </label>
+              <Link
+                to={`/requests/${r.id}`}
+                className={cn(
+                  'flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 hover:bg-surface-2 max-md:min-h-11',
+                  !on && 'opacity-60',
+                )}
+              >
+                <span className="tabular w-16 shrink-0 text-xs text-muted">{r.number}</span>
+                <span className="min-w-0 flex-1 truncate text-text">{r.title}</span>
+                <StatusChip status={r.status} className="max-sm:hidden" />
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-xs text-muted" aria-live="polite">
+        {enough ? ru.analytics.groupSelected(picked.length, g.requests.length) : ru.analytics.groupMin}
+      </p>
+    </li>
   );
 }
 

@@ -55,6 +55,12 @@ describe('sla', () => {
     const v = slaView({ ...base, first_responded_at: now.toISOString() }, 'in_review', now);
     expect(v.label).toBe('до 15.11 18:00');
   });
+  it('labels the deadline as the resolution deadline of the request in decision / implementation', () => {
+    const fr = { ...base, first_responded_at: now.toISOString() };
+    expect(slaView(fr, 'decision', now).label).toBe('Срок решения по обращению до 15.11 18:00');
+    expect(slaView(fr, 'in_progress', now)).toMatchObject({ tone: 'neutral', label: 'Срок решения по обращению до 15.11 18:00' });
+    expect(slaView({ ...fr, state: 'soon' }, 'in_progress', now)).toMatchObject({ tone: 'warning', label: 'Скоро срок решения по обращению: 15.11 18:00' });
+  });
   it('overdue is danger with text, never colour only', () => {
     const v = slaView({ ...base, state: 'overdue', overdue_kind: 'first_response', overdue_hours: 6 }, 'new', now);
     expect(v.tone).toBe('danger');
@@ -80,7 +86,7 @@ describe('status', () => {
     expect(needsResult('closed')).toBe(true);
     expect(isTerminal('closed')).toBe(true);
     expect(statusLabel('closed')).toBe('Закрыто');
-    expect(actionLabel('new', 'closed')).toBe('Закрыть с результатом');
+    expect(actionLabel('new', 'closed')).toBe('Закрыть без реализации');
     expect(needsResult('decision')).toBe(false);
     expect(needsResult('in_progress')).toBe(false);
     expect(isTerminal('duplicate')).toBe(true);
@@ -108,7 +114,7 @@ describe('status', () => {
   });
   it('labels lifecycle actions by transition', () => {
     expect(actionLabel('new', 'in_review')).toBe('Взять в проработку');
-    expect(actionLabel('in_review', 'decision')).toBe('Передать на решение');
+    expect(actionLabel('in_review', 'decision')).toBe('Перейти к принятию решения');
     expect(actionLabel('decision', 'in_review')).toBe('Вернуть на доработку');
     expect(actionLabel('decision', 'in_progress')).toBe('Начать реализацию');
     expect(actionLabel('in_progress', 'implemented')).toBe('Завершить с результатом');

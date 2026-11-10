@@ -46,9 +46,8 @@ import { TypeLabel } from '@/shared/ui/RequestCard';
 import { useUser, isStaff } from '@/features/auth/AuthProvider';
 import { Timeline } from './Timeline';
 import { LifecycleCard } from './LifecycleCard';
-import { Composer } from './Composer';
-import { AssignDialog, CloseDialog, QuestionDialog, ThemeDialog } from './ActionDialogs';
-import { useRequestMutations } from './useRequestMutations';
+import { Composer, type KindRequest } from './Composer';
+import { AssignDialog, CloseDialog, MoveDialog, ThemeDialog } from './ActionDialogs';
 
 export default function RequestDetailPage() {
   const id = Number(useParams().id);
@@ -78,7 +77,7 @@ function BackLink() {
     <button
       type="button"
       onClick={() => (window.history.length > 1 ? navigate(-1) : navigate(isStaff(user.role) ? '/inbox' : '/my'))}
-      className="mb-4 inline-flex h-9 items-center gap-2 rounded-lg pr-2 text-sm font-medium text-muted transition-colors duration-150 hover:text-text max-md:h-11"
+      className="mb-4 inline-flex h-10 items-center gap-2 rounded-lg pr-2 text-sm font-medium text-muted transition-colors duration-150 hover:text-text max-md:h-11"
     >
       <ArrowLeft className="h-4 w-4" aria-hidden="true" />
       {ru.detail.back}
@@ -88,6 +87,7 @@ function BackLink() {
 
 function Detail({ r }: { r: RequestDetail }) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [kindRequest, setKindRequest] = useState<KindRequest>();
   const isAuthor = r.author.is_me;
   const staffView = r.allowed_statuses.length > 0 || r.can_assign || r.allowed_comment_kinds.includes('internal');
   const needsAnswer = isAuthor && r.status === 'needs_info' && r.allowed_comment_kinds.includes('answer');
@@ -109,7 +109,7 @@ function Detail({ r }: { r: RequestDetail }) {
             </Badge>
           )}
         </div>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-text md:text-3xl">{r.title}</h1>
+        <h1 className="mt-3 min-w-0 text-2xl font-semibold tracking-tight text-text [overflow-wrap:anywhere] md:text-3xl">{r.title}</h1>
       </header>
 
       {needsAnswer && (
@@ -162,11 +162,11 @@ function Detail({ r }: { r: RequestDetail }) {
             <Timeline items={r.timeline} />
           </section>
 
-          <Composer ref={composerRef} request={r} />
+          <Composer ref={composerRef} request={r} kindRequest={kindRequest} />
         </div>
 
         <aside className="flex flex-col gap-6 lg:sticky lg:top-24" aria-label={ru.detail.metaPanel}>
-          {staffView && <StaffActions r={r} />}
+          {staffView && <StaffActions r={r} onAskQuestion={() => setKindRequest((k) => ({ kind: 'question', n: (k?.n ?? 0) + 1 }))} />}
           <MetaCard r={r} />
           {staffView && <SimilarCard r={r} />}
           {!staffView && r.similar.count > 0 && (
@@ -289,14 +289,11 @@ const ACTION_ICON: Partial<Record<Status, typeof Search>> = {
   closed: Archive,
 };
 
-function StaffActions({ r }: { r: RequestDetail }) {
-  const toast = useToast();
-  const { status } = useRequestMutations(r.id);
+function StaffActions({ r, onAskQuestion }: { r: RequestDetail; onAskQuestion: () => void }) {
   const [closing, setClosing] = useState<Status | null>(null);
-  const [question, setQuestion] = useState(false);
+  const [moving, setMoving] = useState<Status | null>(null);
   const [assign, setAssign] = useState(false);
   const [theme, setTheme] = useState(false);
-  const [pending, setPending] = useState<Status | null>(null);
   // "Запросить уточнение" is a question comment (it sets needs_info), so it follows allowed_comment_kinds.
   const actions = sortActions([
     ...r.allowed_statuses.filter((s) => s !== 'needs_info'),
@@ -306,24 +303,18 @@ function StaffActions({ r }: { r: RequestDetail }) {
     (s) => !isBackward(r.status, s) && (s === 'in_review' || s === 'decision' || s === 'in_progress' || s === 'implemented'),
   );
 
+  // "Запросить уточнение" selects the "Вопрос" tab of the composer instead of opening a second form.
+  // Every other move asks for confirmation first (and offers an optional message to the author).
   function run(s: Status) {
-    if (s === 'needs_info') return setQuestion(true);
+    if (s === 'needs_info') return onAskQuestion();
     if (needsResult(s)) return setClosing(s);
-    setPending(s);
-    status.mutate(
-      { status: s },
-      {
-        onSuccess: () => toast.success(ru.detail.statusChanged(statusLabel(s))),
-        onError: (e) => toast.error(e.message),
-        onSettled: () => setPending(null),
-      },
-    );
+    setMoving(s);
   }
 
   const variantFor = (s: Status): ButtonVariant => (s === primary ? 'primary' : s === 'declined' ? 'danger-soft' : 'secondary');
 
   return (
-    <Card>
+    <Card data-dialog-fallback tabIndex={-1} className="outline-none focus-visible:outline-2 focus-visible:outline-focus">
       <CardHeader title={ru.detail.staffPanel} as="h2" />
       <div className="flex flex-col gap-2 px-6 pb-6 pt-4 max-sm:px-4">
         {actions.length === 0 && <p className="text-sm text-muted">{ru.detail.noActions}</p>}
@@ -335,8 +326,6 @@ function StaffActions({ r }: { r: RequestDetail }) {
               variant={variantFor(s)}
               className="w-full justify-start"
               onClick={() => run(s)}
-              loading={pending === s}
-              disabled={status.isPending && pending !== s}
               icon={Icon && <Icon className="h-4 w-4" aria-hidden="true" />}
             >
               {actionLabel(r.status, s)}
@@ -349,12 +338,17 @@ function StaffActions({ r }: { r: RequestDetail }) {
             {ru.detail.assign}
           </Button>
         )}
-        <Button variant="ghost" className="w-full justify-start" onClick={() => setTheme(true)} icon={<Tags className="h-4 w-4" aria-hidden="true" />}>
-          {r.theme ? `${ru.detail.theme}: ${r.theme.title}` : ru.detail.themeAdd}
+        <Button
+          variant="ghost"
+          className="h-auto! min-h-10 w-full justify-start whitespace-normal! py-2 text-left"
+          onClick={() => setTheme(true)}
+          icon={<Tags className="h-4 w-4 shrink-0" aria-hidden="true" />}
+        >
+          <span className="min-w-0 [overflow-wrap:anywhere]">{r.theme ? `${ru.detail.theme}: ${r.theme.title}` : ru.detail.themeAdd}</span>
         </Button>
       </div>
       {closing && <CloseDialog key={closing} request={r} status={closing} open onOpenChange={(o) => !o && setClosing(null)} />}
-      {question && <QuestionDialog request={r} open onOpenChange={setQuestion} />}
+      {moving && <MoveDialog key={moving} request={r} to={moving} open onOpenChange={(o) => !o && setMoving(null)} />}
       {assign && <AssignDialog request={r} open onOpenChange={setAssign} />}
       {theme && <ThemeDialog request={r} open onOpenChange={setTheme} />}
     </Card>

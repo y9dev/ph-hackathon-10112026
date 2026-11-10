@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loginAs, logout, openFromInbox, ROLES, submitRequest, uniqueTitle } from './helpers';
+import { loginAs, logout, moveStage, openFromInbox, ROLES, submitRequest, uniqueTitle } from './helpers';
 
 test.describe('Journeys J1–J4', () => {
   test('J1 submit: employee sends a request and gets a number, owner and deadline @mobile', async ({ page }) => {
@@ -53,19 +53,22 @@ test.describe('Journeys J1–J4', () => {
     const stepper = page.getByRole('list', { name: 'Этапы обращения' });
     await expect(stepper.getByRole('listitem').first()).toHaveAttribute('aria-current', 'step');
 
-    await page.getByRole('button', { name: 'Взять в проработку' }).click();
+    await moveStage(page, 'Взять в проработку', 'Принято в работу, вернусь с вопросами.');
     await expect(page.getByText('Статус: В проработке. Автор уведомлён').first()).toBeVisible();
+    // The optional message is posted as a normal comment after the status change.
+    await expect(page.getByText('Принято в работу, вернусь с вопросами.')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Передать на решение' }).click();
+    await moveStage(page, 'Перейти к принятию решения');
     await expect(page.getByText('Статус: Принятие решения. Автор уведомлён').first()).toBeVisible();
     await expect(stepper.getByRole('listitem').nth(1)).toHaveAttribute('aria-current', 'step');
     await expect(page.getByRole('button', { name: 'Вернуть на доработку' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Начать реализацию' }).click();
+    await moveStage(page, 'Начать реализацию');
     await expect(page.getByText('Статус: Реализация. Автор уведомлён').first()).toBeVisible();
     await expect(stepper.getByRole('listitem').nth(2)).toHaveAttribute('aria-current', 'step');
 
-    await page.getByRole('radio', { name: /Отчёт/ }).click();
+    // In implementation the "Отчёт" tab is preselected.
+    await expect(page.getByRole('radio', { name: /Отчёт/ })).toHaveAttribute('aria-checked', 'true');
     await page.getByLabel('Текст сообщения').fill('Шины заказаны, установка в пятницу.');
     await page.getByRole('button', { name: 'Отправить' }).click();
     await expect(page.getByText('Отчёт отправлен, автор уведомлён').first()).toBeVisible();
@@ -73,8 +76,12 @@ test.describe('Journeys J1–J4', () => {
 
     await page.getByRole('button', { name: 'Завершить с результатом' }).click();
     const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'Завершить обращение' })).toBeVisible();
+    await expect(dialog.getByText('Опишите, что именно сделано')).toBeVisible();
+    await expect(dialog.getByText('(обязательно)')).toBeVisible();
     await dialog.getByRole('button', { name: 'Завершить с результатом' }).click();
-    await expect(dialog.getByText('Без решения закрыть нельзя — опишите результат')).toBeVisible();
+    await expect(dialog.getByText('Без решения закрыть нельзя — опишите результат')).toHaveCount(1);
+    await expect(dialog.getByLabel('Решение для автора')).toBeFocused();
     await dialog.getByLabel('Решение для автора').fill('Шины заменены на зимние, машина готова к выездам.');
     await dialog.getByRole('button', { name: 'Завершить с результатом' }).click();
     await expect(dialog).toBeHidden();
@@ -97,12 +104,14 @@ test.describe('Journeys J1–J4', () => {
 
     await loginAs(page, ROLES.admin);
     await openFromInbox(page, c);
-    await page.getByRole('button', { name: 'Закрыть с результатом' }).click();
+    await page.getByRole('button', { name: 'Закрыть без реализации' }).click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: 'Закрыть с результатом' }).click();
+    await expect(dialog.getByRole('heading', { name: 'Закрыть без реализации' })).toBeVisible();
+    await expect(dialog.getByText('Объясните, почему реализация не нужна или что было сделано иначе')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Закрыть без реализации' }).click();
     await expect(dialog.getByText('Без решения закрыть нельзя — опишите результат')).toBeVisible();
     await dialog.getByLabel('Решение для автора').fill('Ответили лично, дополнительных действий не требуется.');
-    await dialog.getByRole('button', { name: 'Закрыть с результатом' }).click();
+    await dialog.getByRole('button', { name: 'Закрыть без реализации' }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByRole('heading', { name: 'Решение: Закрыто' })).toBeVisible();
     await logout(page);
@@ -121,11 +130,13 @@ test.describe('Journeys J1–J4', () => {
 
     await loginAs(page, ROLES.admin);
     await openFromInbox(page, c);
+    // "Запросить уточнение" selects the "Вопрос" tab of the composer and focuses its field.
     await page.getByRole('button', { name: 'Запросить уточнение' }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Вопрос автору').fill('На каких объектах это происходило чаще всего?');
-    await dialog.getByRole('button', { name: 'Отправить' }).click();
-    await expect(dialog).toBeHidden();
+    await expect(page.getByRole('radio', { name: /Вопрос/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByLabel('Текст сообщения')).toBeFocused();
+    await page.getByLabel('Текст сообщения').fill('На каких объектах это происходило чаще всего?');
+    await page.getByRole('button', { name: 'Отправить' }).click();
+    await expect(page.getByText('Вопрос отправлен, автор уведомлён').first()).toBeVisible();
     await expect(page.getByText('Нужно уточнение').first()).toBeVisible();
     await logout(page);
 

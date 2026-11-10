@@ -179,13 +179,15 @@ export function AppShell() {
 
       {/* FAB (mobile) */}
       {showFab && (
-        <Link
-          to="/new"
-          aria-label={ru.nav.new}
-          className="fixed bottom-20 right-4 z-30 inline-flex h-14 w-14 items-center justify-center rounded-full bg-brand text-on-brand shadow-lg transition-transform duration-150 hover:bg-brand-hover active:scale-95 md:hidden"
-        >
-          <Plus className="h-6 w-6" aria-hidden="true" />
-        </Link>
+        <div role="region" aria-label={ru.nav.quick} className="md:hidden">
+          <Link
+            to="/new"
+            aria-label={ru.nav.new}
+            className="fixed bottom-20 right-4 z-30 inline-flex h-14 w-14 items-center justify-center rounded-full bg-brand text-on-brand shadow-lg transition-transform duration-150 hover:bg-brand-hover active:scale-95"
+          >
+            <Plus className="h-6 w-6" aria-hidden="true" />
+          </Link>
+        </div>
       )}
 
       {/* Bottom tab bar (mobile) */}
@@ -256,7 +258,7 @@ function TopBar() {
 
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-surface/90 px-4 backdrop-blur-md md:px-8">
-      <Link to="/" className="rounded-lg md:hidden" aria-label={ru.app.name}>
+      <Link to="/" className="inline-flex h-11 min-w-11 items-center justify-center rounded-lg md:hidden" aria-label={ru.app.name}>
         <Logo compact />
       </Link>
       <form role="search" onSubmit={onSearch} className="relative min-w-0 flex-1 md:max-w-md">

@@ -25,10 +25,10 @@ export function BarList({ data, max: maxProp }: { data: BarDatum[]; max?: number
         const pct = (d.value / max) * 100;
         const inner = (
           <>
-            <span className="flex items-baseline justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-2 text-sm text-text">
+            <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+              <span className="flex min-w-0 flex-1 basis-40 items-center gap-2 text-sm text-text">
                 {d.icon}
-                <span className="truncate">{d.label}</span>
+                <span className="min-w-0 break-words">{d.label}</span>
               </span>
               <span className="flex shrink-0 items-baseline gap-2">
                 {d.meta && <span className="text-xs text-muted">{d.meta}</span>}
@@ -46,7 +46,7 @@ export function BarList({ data, max: maxProp }: { data: BarDatum[]; max?: number
         return (
           <li key={d.key}>
             {d.href ? (
-              <Link to={d.href} className="block rounded-lg p-1 -m-1 transition-colors duration-150 hover:bg-surface-2">
+              <Link to={d.href} className="-m-1 block rounded-lg p-1 transition-colors duration-150 hover:bg-surface-2 max-md:flex max-md:min-h-11 max-md:flex-col max-md:justify-center">
                 {inner}
               </Link>
             ) : (
@@ -182,7 +182,7 @@ export function TrendChart({ data }: { data: SeriesPoint[] }) {
         )}
       </svg>
       <details className="mt-2 text-sm">
-        <summary className="inline-flex min-h-9 items-center text-muted hover:text-text">{ru.analytics.chartTable}</summary>
+        <summary className="inline-flex min-h-10 items-center text-muted hover:text-text max-md:min-h-11">{ru.analytics.chartTable}</summary>
         <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-border">
           <table className="w-full text-left text-sm">
             <thead className="bg-surface-2 text-xs text-muted">
