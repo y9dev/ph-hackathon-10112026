@@ -40,7 +40,7 @@ export default function SubmitPage() {
       <PageHeader title={ru.submit.title} lead={ru.submit.lead} />
       {meta.isPending ? (
         <LoadingBlock>
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex flex-col gap-6">
               <Skeleton className="h-12" />
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -168,7 +168,7 @@ function SubmitForm({ meta }: { meta: Meta }) {
   const dirty = Boolean(values.title || values.body || values.proposed_solution || values.category_id || files.length);
 
   return (
-    <form noValidate onSubmit={handleSubmit(onSubmit, onInvalid)} className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <form noValidate onSubmit={handleSubmit(onSubmit, onInvalid)} className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="flex min-w-0 flex-col gap-8">
         {restored && (
           <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm text-text">

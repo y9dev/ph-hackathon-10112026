@@ -3,10 +3,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Navigate, useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
-import { CircleAlert, MessageSquareText, Route, BadgeCheck, ChevronRight, UserRound, Wrench, Server, ShieldCheck } from 'lucide-react';
+import { CircleAlert, MessageSquareText, Route, BadgeCheck, ChevronRight, UserRound, Briefcase, ShieldCheck } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
 import { qk } from '@/shared/api/queries';
-import type { DemoUser } from '@/shared/api/types';
+import type { DemoUser, Role } from '@/shared/api/types';
 import { ru } from '@/shared/i18n/ru';
 import { Button, FormField, Input, Skeleton, useDocumentTitle } from '@/shared/ui';
 import { Logo } from '@/app/Logo';
@@ -143,15 +143,16 @@ export default function LoginPage() {
                 {ru.auth.demoLead} {ru.auth.demoPassword(demo.data.password_hint)}
               </p>
               <ul className="mt-4 grid grid-cols-1 gap-2">
-                {demo.data.users.map((u, i) => {
-                  const Icon = [UserRound, Server, Wrench, ShieldCheck][i % 4];
+                {demo.data.users.map((u) => {
+                  const role = (u.role in ru.roles ? u.role : 'employee') as Role;
+                  const Icon = role === 'admin' ? ShieldCheck : role === 'manager' ? Briefcase : UserRound;
                   return (
                     <li key={u.email}>
                       <button
                         type="button"
                         onClick={() => demoLogin(u)}
                         disabled={login.isPending}
-                        aria-label={ru.auth.demoLoginAs(`${u.title}: ${u.name}`)}
+                        aria-label={ru.auth.demoLoginAs(`${ru.roles[role]} — ${u.title}, ${u.name}`)}
                         className="group flex w-full items-center gap-3 rounded-lg border border-border bg-surface px-3 py-3 text-left transition-[border-color,background-color] duration-150 hover:border-brand hover:bg-brand-soft disabled:opacity-60"
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted transition-colors duration-150 group-hover:bg-surface group-hover:text-brand" aria-hidden="true">

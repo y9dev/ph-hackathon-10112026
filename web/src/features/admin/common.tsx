@@ -5,7 +5,8 @@ import { Badge, LoadingBlock, Skeleton } from '@/shared/ui';
 
 export function TableShell({ caption, head, children }: { caption: string; head: ReactNode; children: ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
+    // `relative` keeps the absolutely-positioned sr-only caption inside the scroll box.
+    <div className="relative overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
       <table className="w-full min-w-[640px] border-collapse text-left text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead className="bg-surface-2 text-xs text-muted">

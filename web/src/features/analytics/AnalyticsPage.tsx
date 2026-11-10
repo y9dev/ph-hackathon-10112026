@@ -88,7 +88,7 @@ export default function AnalyticsPage() {
           <SegmentedControl
             aria-labelledby="period-label"
             size="sm"
-            className="w-auto"
+            className="sm:w-[440px]"
             value={period}
             onChange={(v) => setParam('period', v === '30' ? null : v)}
             options={PERIODS.map((p) => ({ value: p, label: ru.analytics.periods[p] }))}
@@ -122,7 +122,7 @@ export default function AnalyticsPage() {
         <Dashboard data={summary.data} />
       )}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <GroupsCard q={groups} />
         <ThemesCard q={themes} />
       </div>
@@ -138,7 +138,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
-      <section aria-label="KPI" className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+      <section aria-label={ru.analytics.kpis} className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">
         <Kpi label={ru.analytics.kpiTotal} help={ru.analytics.kpiTotalHelp} value={String(k.total)} />
         <Kpi label={ru.analytics.kpiReviewed} help={ru.analytics.kpiReviewedHelp} value={formatPercent(k.reviewed_share)} bar={k.reviewed_share} />
         <Kpi
@@ -159,7 +159,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
         <Kpi label={ru.analytics.kpiAutoRouted} help={ru.analytics.kpiAutoRoutedHelp} value={formatPercent(k.auto_routed_share)} bar={k.auto_routed_share} />
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={ru.analytics.byStatus} />
           <div className="px-6 pb-6 pt-4 max-sm:px-4">
@@ -186,7 +186,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={ru.analytics.byCategory} />
           <div className="px-6 pb-6 pt-4 max-sm:px-4">
@@ -301,12 +301,10 @@ function Kpi({
   );
   return (
     <div className={cn('relative rounded-xl border bg-surface p-4 shadow-sm md:p-6', tone === 'danger' ? 'border-danger/40' : 'border-border')}>
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <h3 className="text-sm font-medium text-muted">{label}</h3>
-        <span className="relative z-[2] -mr-1 -mt-1">
-          <InfoTip label={ru.analytics.aboutMetric(label)}>{help}</InfoTip>
-        </span>
-      </div>
+      <h3 className="mb-2 pr-8 text-sm font-medium text-muted">{label}</h3>
+      <span className="absolute right-2 top-2 z-[2] md:right-3 md:top-3">
+        <InfoTip label={ru.analytics.aboutMetric(label)}>{help}</InfoTip>
+      </span>
       {href ? (
         <Link to={href} className="block rounded-md after:absolute after:inset-0 after:rounded-xl after:content-['']" aria-label={`${label}: ${value}. ${ru.analytics.openInbox}`}>
           {body}
@@ -437,7 +435,7 @@ function AnalyticsSkeleton() {
           <Skeleton key={i} className="h-32" />
         ))}
       </div>
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Skeleton className="h-72" />
         <Skeleton className="h-72" />
       </div>

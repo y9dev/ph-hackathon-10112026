@@ -13,6 +13,12 @@ import {
   Headset,
   FileText,
   Folder,
+  Workflow,
+  MonitorCog,
+  Package,
+  DraftingCompass,
+  Handshake,
+  CircleHelp,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -35,6 +41,12 @@ const ICONS: Record<string, LucideIcon> = {
   headset: Headset,
   'file-text': FileText,
   folder: Folder,
+  workflow: Workflow,
+  'monitor-cog': MonitorCog,
+  package: Package,
+  'drafting-compass': DraftingCompass,
+  handshake: Handshake,
+  'circle-help': CircleHelp,
 };
 
 export const CATEGORY_ICON_NAMES = Object.keys(ICONS).filter((k) => !['laptop', 'building', 'shield'].includes(k));

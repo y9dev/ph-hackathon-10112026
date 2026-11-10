@@ -399,6 +399,7 @@ export const ru = {
     periods: { '7': '7 дней', '30': '30 дней', '90': '90 дней', all: 'Всё время' },
     department: 'Отдел',
     allDepartments: 'Все отделы',
+    kpis: 'Ключевые показатели',
     kpiTotal: 'Всего обращений',
     kpiReviewed: 'Рассмотрено',
     kpiFirstResponse: 'Первый ответ',

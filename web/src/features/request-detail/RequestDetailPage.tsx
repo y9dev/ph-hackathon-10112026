@@ -129,7 +129,7 @@ function Detail({ r }: { r: RequestDetail }) {
         </div>
       )}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8">
         <div className="flex min-w-0 flex-col gap-6">
           {r.result_text && <ResultCard r={r} highlight={isAuthor} />}
 
@@ -287,7 +287,11 @@ function StaffActions({ r }: { r: RequestDetail }) {
   const [assign, setAssign] = useState(false);
   const [theme, setTheme] = useState(false);
   const [pending, setPending] = useState<Status | null>(null);
-  const actions = sortActions(r.allowed_statuses).filter((s) => s !== 'needs_info' || r.allowed_comment_kinds.includes('question'));
+  // "Запросить уточнение" is a question comment (it sets needs_info), so it follows allowed_comment_kinds.
+  const actions = sortActions([
+    ...r.allowed_statuses.filter((s) => s !== 'needs_info'),
+    ...(r.allowed_comment_kinds.includes('question') ? (['needs_info'] as Status[]) : []),
+  ]);
   const primary = actions.find((s) => s === 'in_review' || s === 'accepted' || s === 'implemented');
 
   function run(s: Status) {
@@ -389,7 +393,7 @@ function DetailSkeleton() {
         <Skeleton className="h-6 w-32 rounded-full" />
       </div>
       <Skeleton className="mt-4 h-9 w-2/3" />
-      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex flex-col gap-6">
           <Skeleton className="h-48" />
           <Skeleton className="h-6 w-32" />

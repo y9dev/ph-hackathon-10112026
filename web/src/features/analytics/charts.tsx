@@ -11,7 +11,7 @@ export interface BarDatum {
   /** CSS colour (token) for the bar. */
   color?: string;
   href?: string;
-  /** Secondary text on the right, e.g. "открыто 3". */
+  /** Secondary text on the right, e.g. "РѕС‚РєСЂС‹С‚Рѕ 3". */
   meta?: ReactNode;
   icon?: ReactNode;
 }
@@ -111,9 +111,10 @@ export interface SeriesPoint {
 
 /** Two-series line chart (created vs closed) with hover/focus readout and an accessible data table. */
 export function TrendChart({ data }: { data: SeriesPoint[] }) {
-  const W = 640;
-  const H = 220;
-  const pad = { l: 32, r: 12, t: 12, b: 28 };
+  // Small viewBox so axis text (12 units) stays legible when the card is ~400 px wide.
+  const W = 440;
+  const H = 180;
+  const pad = { l: 28, r: 12, t: 10, b: 26 };
   const [hover, setHover] = useState<number | null>(null);
   const titleId = useId();
   const max = Math.max(2, ...data.map((d) => Math.max(d.created, d.closed)));
@@ -157,14 +158,14 @@ export function TrendChart({ data }: { data: SeriesPoint[] }) {
         {ticks.map((t) => (
           <g key={t}>
             <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeDasharray={t === 0 ? undefined : '3 4'} />
-            <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--text-muted)" className="tabular">
+            <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="12" fill="var(--text-muted)" className="tabular">
               {t}
             </text>
           </g>
         ))}
         {data.map((d, i) =>
           i % labelEvery === 0 || i === data.length - 1 ? (
-            <text key={d.date} x={x(i)} y={H - 8} textAnchor="middle" fontSize="11" fill="var(--text-muted)" className="tabular">
+            <text key={d.date} x={x(i)} y={H - 8} textAnchor="middle" fontSize="12" fill="var(--text-muted)" className="tabular">
               {formatDay(d.date)}
             </text>
           ) : null,

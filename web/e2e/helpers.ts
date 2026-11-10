@@ -1,14 +1,14 @@
 import { expect, type Page } from '@playwright/test';
 
-/** Demo account buttons are labelled "Войти как <title>: <name>". */
+/** Demo account buttons are labelled "Войти как <роль> — <должность>, <имя>". First match per role is used. */
 export const ROLES = {
-  employee: /Войти как Сотрудник/,
-  admin: /Войти как Администратор/,
+  employee: /^Войти как Сотрудник —/,
+  admin: /^Войти как Администратор —/,
 };
 
 export async function loginAs(page: Page, role: RegExp) {
   await page.goto('/login');
-  await page.getByRole('button', { name: role }).click();
+  await page.getByRole('button', { name: role }).first().click();
   await expect(page.getByRole('navigation', { name: 'Основная навигация' }).first()).toBeVisible();
 }
 
