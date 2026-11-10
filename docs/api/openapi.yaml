@@ -1,0 +1,254 @@
+openapi: 3.0.3
+info:
+  title: Modus Voice API
+  version: 1.0.0
+  description: |
+    FROZEN CONTRACT for MVP. Backend and frontend code against this file. Changes require orchestrator approval.
+    Conventions: base path /api/v1, JSON snake_case, timestamps RFC3339 UTC, session cookie `mv_session` (httpOnly).
+    Errors: HTTP 4xx/5xx with body {"error":{"code","message","fields"}}; `message` is Russian, safe to show.
+    Codes: validation_failed(400) unauthorized(401) forbidden(403) not_found(404) conflict(409) too_many_requests(429) internal(500).
+    Anonymity: for anonymous requests EVERY view for non-authors (incl. admin) shows author as {"name":"Автор (анонимно)","anonymous":true,"is_me":false}; author id/email are never serialized.
+    Authors never receive comments with kind=internal.
+servers: [{url: /api/v1}]
+security: [{cookie: []}]
+paths:
+  /auth/login:
+    post:
+      security: []
+      summary: Login
+      requestBody: {content: {application/json: {schema: {type: object, required: [email, password], properties: {email: {type: string}, password: {type: string}}}}}}
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}, "401": {description: bad credentials}, "429": {description: throttled}}
+  /auth/logout: {post: {summary: Logout, responses: {"204": {description: ok}}}}
+  /auth/me: {get: {summary: Current user, responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}}}}
+  /auth/demo-users:
+    get:
+      security: []
+      summary: Demo accounts (404 unless DEMO_MODE=true)
+      responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {password_hint: {type: string}, users: {type: array, items: {type: object, properties: {email: {type: string}, name: {type: string}, role: {type: string}, title: {type: string}}}}}}}}}}
+  /meta:
+    get:
+      summary: Reference data for forms
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/Meta'}}}}}
+  /routing/preview:
+    get:
+      summary: What would happen to a request with this category/type (for the submit form)
+      parameters: [{name: category_id, in: query, required: true, schema: {type: integer}}, {name: type, in: query, required: true, schema: {$ref: '#/components/schemas/RequestType'}}]
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingPreview'}}}}}
+  /requests:
+    get:
+      summary: List requests. scope=mine (own, any role), inbox (staff: in my scope), all (admin only; inbox scope for manager)
+      parameters:
+        - {name: scope, in: query, required: true, schema: {type: string, enum: [mine, inbox, all]}}
+        - {name: tab, in: query, schema: {type: string, enum: [needs_action, in_progress, waiting_author, closed, all]}, description: "inbox/all only. needs_action = status new OR (in_review/accepted AND overdue); in_progress = in_review|accepted; waiting_author = needs_info; closed = terminal"}
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/Status'}}
+        - {name: category_id, in: query, schema: {type: integer}}
+        - {name: department_id, in: query, schema: {type: integer}}
+        - {name: assignee, in: query, schema: {type: string, enum: [me, none]}}
+        - {name: overdue, in: query, schema: {type: boolean}}
+        - {name: q, in: query, schema: {type: string}, description: "substring over number,title,body,result_text"}
+        - {name: sort, in: query, schema: {type: string, enum: [deadline, newest, oldest, updated], default: deadline}}
+        - {name: page, in: query, schema: {type: integer, default: 1}}
+        - {name: page_size, in: query, schema: {type: integer, default: 20, maximum: 100}}
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RequestList'}}}}}
+    post:
+      summary: Create request (multipart/form-data). Field `payload` = JSON string of CreateRequest; field `files` = 0..5 files.
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [payload], properties: {payload: {type: string, description: JSON CreateRequest}, files: {type: array, items: {type: string, format: binary}}}}
+      responses: {"201": {description: created, content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}, "400": {description: validation_failed}}
+  /requests/export.csv:
+    get:
+      summary: CSV export of inbox scope (staff). Anonymous authors masked. Same filters as list.
+      responses: {"200": {description: csv, content: {text/csv: {schema: {type: string}}}}}
+  /requests/{id}:
+    get:
+      parameters: [{$ref: '#/components/parameters/id'}]
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}, "404": {description: not found or not allowed}}
+  /requests/{id}/status:
+    post:
+      summary: Change status (staff in scope). Validates transition table; closing needs result_text; duplicate needs duplicate_of_id.
+      parameters: [{$ref: '#/components/parameters/id'}]
+      requestBody: {content: {application/json: {schema: {type: object, required: [status], properties: {status: {$ref: '#/components/schemas/Status'}, result_text: {type: string, maxLength: 4000}, duplicate_of_id: {type: integer}}}}}}
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}, "409": {description: transition not allowed}}
+  /requests/{id}/assign:
+    post:
+      summary: Reassign department and/or assignee (staff in scope)
+      parameters: [{$ref: '#/components/parameters/id'}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {department_id: {type: integer}, assignee_id: {type: integer, nullable: true}}}}}}
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}}
+  /requests/{id}/comments:
+    post:
+      summary: |
+        Add comment. kinds: comment (staff or author), question (staff; sets status needs_info), answer (author only, only when needs_info; sets status in_review), internal (staff only).
+      parameters: [{$ref: '#/components/parameters/id'}]
+      requestBody: {content: {application/json: {schema: {type: object, required: [kind, body], properties: {kind: {type: string, enum: [comment, question, answer, internal]}, body: {type: string, minLength: 1, maxLength: 4000}}}}}}
+      responses: {"201": {description: created, content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}}
+  /requests/{id}/theme:
+    post:
+      summary: Staff links request to a theme (existing theme_id) or creates one (title).
+      parameters: [{$ref: '#/components/parameters/id'}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {theme_id: {type: integer}, title: {type: string}}}}}}
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}}
+  /attachments/{id}:
+    get:
+      summary: Download attachment (same access as parent request). Content-Disposition attachment.
+      parameters: [{$ref: '#/components/parameters/id'}]
+      responses: {"200": {description: file}}
+  /notifications:
+    get:
+      parameters: [{name: unread, in: query, schema: {type: boolean}}, {name: limit, in: query, schema: {type: integer, default: 20}}]
+      responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {unread_count: {type: integer}, items: {type: array, items: {$ref: '#/components/schemas/Notification'}}}}}}}}
+  /notifications/read:
+    post:
+      requestBody: {content: {application/json: {schema: {type: object, properties: {ids: {type: array, items: {type: integer}}, all: {type: boolean}}}}}}
+      responses: {"204": {description: ok}}
+  /analytics/summary:
+    get:
+      summary: Staff only. Manager scope = own departments; admin = all.
+      parameters: [{name: from, in: query, schema: {type: string, format: date}}, {name: to, in: query, schema: {type: string, format: date}}, {name: department_id, in: query, schema: {type: integer}}]
+      responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/AnalyticsSummary'}}}}}
+  /analytics/suggested-groups:
+    get:
+      summary: Heuristic groups of similar requests (Jaccard). Staff only.
+      responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/SuggestedGroup'}}}}}}}}
+  /themes:
+    get:
+      summary: Confirmed themes with counts. Staff only.
+      responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Theme'}}}}}}}}
+  /admin/categories:
+    get: {summary: "List (admin)", responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Category'}}}}}}}}}
+    post: {summary: "Create (admin)", requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/CategoryInput'}}}}, responses: {"201": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/Category'}}}}}}
+  /admin/categories/{id}:
+    patch: {parameters: [{$ref: '#/components/parameters/id'}], requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/CategoryInput'}}}}, responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/Category'}}}}}}
+  /admin/routing-rules:
+    get: {summary: "List (admin)", responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/RoutingRule'}}}}}}}}}
+    post: {summary: "Create; 409 if active rule with same (category,type) exists", requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRuleInput'}}}}, responses: {"201": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRule'}}}}}}
+  /admin/routing-rules/{id}:
+    patch: {parameters: [{$ref: '#/components/parameters/id'}], requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRuleInput'}}}}, responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRule'}}}}}}
+    delete: {parameters: [{$ref: '#/components/parameters/id'}], responses: {"204": {description: ok}}}
+  /admin/users:
+    get: {summary: "List (admin)", responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/AdminUser'}}}}}}}}}
+    post: {summary: "Create (admin) with initial password", requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AdminUserInput'}}}}, responses: {"201": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUser'}}}}}}
+  /admin/users/{id}:
+    patch: {parameters: [{$ref: '#/components/parameters/id'}], requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AdminUserInput'}}}}, responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUser'}}}}}}
+  /admin/departments:
+    get: {summary: "List (admin)", responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Department'}}}}}}}}}
+components:
+  securitySchemes: {cookie: {type: apiKey, in: cookie, name: mv_session}}
+  parameters: {id: {name: id, in: path, required: true, schema: {type: integer}}}
+  schemas:
+    Role: {type: string, enum: [employee, manager, admin]}
+    RequestType: {type: string, enum: [problem, idea]}
+    Status: {type: string, enum: [new, in_review, needs_info, accepted, implemented, declined, duplicate]}
+    User: {type: object, properties: {id: {type: integer}, name: {type: string}, email: {type: string}, role: {$ref: '#/components/schemas/Role'}, department_id: {type: integer, nullable: true}, department_name: {type: string, nullable: true}, led_department_ids: {type: array, items: {type: integer}}}}
+    Department: {type: object, properties: {id: {type: integer}, name: {type: string}, head_user_id: {type: integer, nullable: true}, head_name: {type: string, nullable: true}}}
+    Category: {type: object, properties: {id: {type: integer}, name: {type: string}, description: {type: string}, icon: {type: string, description: "lucide icon name"}, sort: {type: integer}, active: {type: boolean}}}
+    CategoryInput: {type: object, properties: {name: {type: string}, description: {type: string}, icon: {type: string}, sort: {type: integer}, active: {type: boolean}}}
+    Meta:
+      type: object
+      properties:
+        categories: {type: array, items: {$ref: '#/components/schemas/Category'}}
+        departments: {type: array, items: {$ref: '#/components/schemas/Department'}}
+        statuses: {type: array, items: {type: object, properties: {id: {$ref: '#/components/schemas/Status'}, label: {type: string}, terminal: {type: boolean}}}}
+        limits: {type: object, properties: {max_files: {type: integer}, max_file_mb: {type: integer}, max_total_mb: {type: integer}, allowed_extensions: {type: array, items: {type: string}}, title_max: {type: integer}, body_max: {type: integer}}}
+        assignable_users: {type: array, description: "staff only, empty for employees", items: {type: object, properties: {id: {type: integer}, name: {type: string}, department_id: {type: integer}}}}
+    RoutingPreview: {type: object, properties: {routed: {type: boolean}, department: {$ref: '#/components/schemas/Department'}, assignee_name: {type: string, nullable: true}, first_response_hours: {type: integer}, resolution_hours: {type: integer}, first_response_due: {type: string, format: date-time}, similar_count: {type: integer, description: "aggregate only, number of earlier requests in same category"}}}
+    CreateRequest: {type: object, required: [type, category_id, title, body], properties: {type: {$ref: '#/components/schemas/RequestType'}, category_id: {type: integer}, title: {type: string, minLength: 5, maxLength: 140}, body: {type: string, minLength: 20, maxLength: 4000}, proposed_solution: {type: string, maxLength: 2000}, is_anonymous: {type: boolean}}}
+    PersonView:
+      type: object
+      description: Author/actor view produced by the single AuthorView mapper
+      properties: {name: {type: string}, anonymous: {type: boolean}, is_me: {type: boolean}, role: {type: string, nullable: true, description: "staff role label e.g. Руководитель; null for authors"}}
+    SlaState:
+      type: object
+      properties:
+        first_response_due: {type: string, format: date-time}
+        resolution_due: {type: string, format: date-time}
+        first_responded_at: {type: string, format: date-time, nullable: true}
+        state: {type: string, enum: [ok, soon, overdue, paused, done]}
+        overdue_kind: {type: string, enum: [first_response, resolution], nullable: true}
+        overdue_hours: {type: integer, description: "0 when not overdue"}
+    RequestSummary:
+      type: object
+      properties:
+        id: {type: integer}
+        number: {type: string, example: MV-0042}
+        type: {$ref: '#/components/schemas/RequestType'}
+        category: {type: object, properties: {id: {type: integer}, name: {type: string}}}
+        title: {type: string}
+        status: {$ref: '#/components/schemas/Status'}
+        author: {$ref: '#/components/schemas/PersonView'}
+        department: {type: object, nullable: true, properties: {id: {type: integer}, name: {type: string}}}
+        assignee: {type: object, nullable: true, properties: {id: {type: integer}, name: {type: string}}}
+        routing_source: {type: string, enum: [rule, manual, unrouted]}
+        sla: {$ref: '#/components/schemas/SlaState'}
+        comments_count: {type: integer}
+        awaiting_author: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        closed_at: {type: string, format: date-time, nullable: true}
+    RequestList:
+      type: object
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/RequestSummary'}}
+        total: {type: integer}
+        page: {type: integer}
+        page_size: {type: integer}
+        counts: {type: object, description: "tab counters for inbox/all", properties: {needs_action: {type: integer}, in_progress: {type: integer}, waiting_author: {type: integer}, closed: {type: integer}, all: {type: integer}, overdue: {type: integer}}}
+    Attachment: {type: object, properties: {id: {type: integer}, filename: {type: string}, mime: {type: string}, size: {type: integer}}}
+    TimelineItem:
+      type: object
+      properties:
+        id: {type: string, example: "e-12"}
+        at: {type: string, format: date-time}
+        actor: {$ref: '#/components/schemas/PersonView'}
+        kind: {type: string, enum: [created, routed, assigned, status_changed, comment, question, answer, internal, theme_linked, overdue]}
+        from_status: {$ref: '#/components/schemas/Status'}
+        to_status: {$ref: '#/components/schemas/Status'}
+        text: {type: string, nullable: true, description: "comment body, result text or system text (Russian)"}
+    RequestDetail:
+      allOf:
+        - $ref: '#/components/schemas/RequestSummary'
+        - type: object
+          properties:
+            body: {type: string}
+            proposed_solution: {type: string, nullable: true}
+            result_text: {type: string, nullable: true}
+            duplicate_of: {type: object, nullable: true, properties: {id: {type: integer}, number: {type: string}}}
+            theme: {type: object, nullable: true, properties: {id: {type: integer}, title: {type: string}}}
+            attachments: {type: array, items: {$ref: '#/components/schemas/Attachment'}}
+            timeline: {type: array, items: {$ref: '#/components/schemas/TimelineItem'}}
+            allowed_statuses: {type: array, description: "transitions the current user may perform now", items: {$ref: '#/components/schemas/Status'}}
+            allowed_comment_kinds: {type: array, items: {type: string, enum: [comment, question, answer, internal]}}
+            can_assign: {type: boolean}
+            similar:
+              type: object
+              properties:
+                count: {type: integer, description: "aggregate, for everyone"}
+                items: {type: array, description: "staff only, only requests inside staff scope", items: {type: object, properties: {id: {type: integer}, number: {type: string}, title: {type: string}, status: {$ref: '#/components/schemas/Status'}, score: {type: number}}}}
+    Notification: {type: object, properties: {id: {type: integer}, kind: {type: string}, request_id: {type: integer}, request_number: {type: string}, title: {type: string}, body: {type: string}, read: {type: boolean}, created_at: {type: string, format: date-time}}}
+    Theme: {type: object, properties: {id: {type: integer}, title: {type: string}, count: {type: integer}, open_count: {type: integer}, categories: {type: array, items: {type: string}}}}
+    SuggestedGroup: {type: object, properties: {key: {type: string}, title: {type: string}, count: {type: integer}, score: {type: number}, categories: {type: array, items: {type: string}}, requests: {type: array, items: {type: object, properties: {id: {type: integer}, number: {type: string}, title: {type: string}, status: {$ref: '#/components/schemas/Status'}}}}}}
+    AnalyticsSummary:
+      type: object
+      properties:
+        kpis:
+          type: object
+          properties:
+            total: {type: integer}
+            reviewed_share: {type: number, description: "0..1, requests with first_responded_at / total"}
+            median_first_response_hours: {type: number, nullable: true}
+            p90_first_response_hours: {type: number, nullable: true}
+            outcome_share: {type: number, description: "0..1, closed requests having result_text / closed"}
+            implemented_count: {type: integer}
+            overdue_count: {type: integer}
+            auto_routed_share: {type: number}
+        by_status: {type: array, items: {type: object, properties: {status: {$ref: '#/components/schemas/Status'}, count: {type: integer}}}}
+        by_category: {type: array, items: {type: object, properties: {category: {type: string}, count: {type: integer}, implemented: {type: integer}, declined: {type: integer}, open: {type: integer}}}}
+        by_department: {type: array, items: {type: object, properties: {department: {type: string}, count: {type: integer}, open: {type: integer}, overdue: {type: integer}}}}
+        timeseries: {type: array, description: "daily or weekly buckets", items: {type: object, properties: {date: {type: string, format: date}, created: {type: integer}, closed: {type: integer}}}}
+        overdue: {type: array, items: {$ref: '#/components/schemas/RequestSummary'}}
+    RoutingRule: {type: object, properties: {id: {type: integer}, category_id: {type: integer}, category_name: {type: string}, request_type: {type: string, nullable: true}, department_id: {type: integer}, department_name: {type: string}, assignee_user_id: {type: integer, nullable: true}, assignee_name: {type: string, nullable: true}, first_response_hours: {type: integer}, resolution_hours: {type: integer}, active: {type: boolean}}}
+    RoutingRuleInput: {type: object, properties: {category_id: {type: integer}, request_type: {type: string, nullable: true}, department_id: {type: integer}, assignee_user_id: {type: integer, nullable: true}, first_response_hours: {type: integer, minimum: 1}, resolution_hours: {type: integer, minimum: 1}, active: {type: boolean}}}
+    AdminUser: {type: object, properties: {id: {type: integer}, name: {type: string}, email: {type: string}, role: {$ref: '#/components/schemas/Role'}, department_id: {type: integer, nullable: true}, active: {type: boolean}}}
+    AdminUserInput: {type: object, properties: {name: {type: string}, email: {type: string}, role: {$ref: '#/components/schemas/Role'}, department_id: {type: integer, nullable: true}, active: {type: boolean}, password: {type: string, minLength: 8}}}
