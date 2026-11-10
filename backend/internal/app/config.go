@@ -10,19 +10,26 @@ import (
 
 // Config is read from the environment (and an optional .env file in the working directory).
 type Config struct {
-	Addr           string        // ADDR, default :8080
-	DataDir        string        // DATA_DIR, default ./data (SQLite file + uploads)
-	DemoMode       bool          // DEMO_MODE, default false: exposes /auth/demo-users
-	SeedDemo       bool          // SEED_DEMO, default false: seed demo data if the DB is empty
-	TrustedProxy   bool          // TRUSTED_PROXY, default false: trust X-Forwarded-For / X-Real-IP for the client IP
-	CreatePerHour  int           // RATE_CREATE_PER_HOUR, default 20: POST /requests per user (negative disables)
-	CommentPerHour int           // RATE_COMMENT_PER_HOUR, default 60: POST comments per user (negative disables)
-	AllowedOrigins []string      // ALLOWED_ORIGINS, comma-separated extra origins for unsafe methods (e.g. Vite dev server)
-	DisplayTZ      string        // DISPLAY_TZ, default Asia/Almaty: CSV export and analytics day buckets
-	BcryptCost     int           // BCRYPT_COST, default 10 (tests use 4)
-	OverdueEvery   time.Duration // overdue ticker period (fixed 1m; tests disable the ticker)
-	DisableTicker  bool
-	Now            func() time.Time // clock override for tests
+	Addr           string   // ADDR, default :8080
+	DataDir        string   // DATA_DIR, default ./data (SQLite file + uploads)
+	DemoMode       bool     // DEMO_MODE, default false: exposes /auth/demo-users
+	SeedDemo       bool     // SEED_DEMO, default false: seed demo data if the DB is empty
+	TrustedProxy   bool     // TRUSTED_PROXY, default false: trust X-Forwarded-For / X-Real-IP for the client IP
+	CreatePerHour  int      // RATE_CREATE_PER_HOUR, default 20: POST /requests per user (negative disables)
+	CommentPerHour int      // RATE_COMMENT_PER_HOUR, default 60: POST comments per user (negative disables)
+	AllowedOrigins []string // ALLOWED_ORIGINS, comma-separated extra origins for unsafe methods (e.g. Vite dev server)
+	DisplayTZ      string   // DISPLAY_TZ, default Asia/Almaty: CSV export and analytics day buckets
+	BcryptCost     int      // BCRYPT_COST, default 10 (tests use 4)
+	// Telegram bot (CR4). The bot starts only when TelegramBotToken is set; the token is a secret and
+	// must never be logged.
+	TelegramBotToken string // TELEGRAM_BOT_TOKEN
+	TelegramBotURL   string // TELEGRAM_BOT_URL, t.me link shown by the UI
+	AppBaseURL       string // APP_BASE_URL, default http://localhost:8080 (deep links in bot messages)
+	TelegramAPIBase  string // TELEGRAM_API_BASE, default https://api.telegram.org (tests)
+
+	OverdueEvery  time.Duration // overdue ticker period (fixed 1m; tests disable the ticker)
+	DisableTicker bool
+	Now           func() time.Time // clock override for tests
 }
 
 // LoadConfig reads configuration from the environment.
@@ -40,8 +47,23 @@ func LoadConfig() Config {
 		DisplayTZ:      env("DISPLAY_TZ", "Asia/Almaty"),
 		BcryptCost:     envInt("BCRYPT_COST", 10),
 		OverdueEvery:   time.Minute,
+
+		TelegramBotToken: env("TELEGRAM_BOT_TOKEN", ""),
+		TelegramBotURL:   env("TELEGRAM_BOT_URL", ""),
+		AppBaseURL:       env("APP_BASE_URL", "http://localhost:8080"),
+		TelegramAPIBase:  env("TELEGRAM_API_BASE", "https://api.telegram.org"),
 	}
 }
+
+// TelegramEnabled reports whether the Telegram bot is configured (TELEGRAM_BOT_TOKEN set). The
+// meta handler reports it as features.telegram.
+func (c Config) TelegramEnabled() bool { return strings.TrimSpace(c.TelegramBotToken) != "" }
+
+// String and GoString keep the bot token out of logs and %v / %+v dumps of the configuration.
+func (c Config) String() string {
+	return "app.Config{addr: " + c.Addr + ", telegram_enabled: " + strconv.FormatBool(c.TelegramEnabled()) + "}"
+}
+func (c Config) GoString() string { return c.String() }
 
 func env(k, def string) string {
 	if v := strings.TrimSpace(os.Getenv(k)); v != "" {

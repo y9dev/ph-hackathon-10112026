@@ -52,8 +52,39 @@ Migration `0002_lifecycle` maps legacy `accepted` to `in_progress`.
 | `BCRYPT_COST` | `10` | password hash cost |
 | `RATE_CREATE_PER_HOUR` | `20` | per-user limit for creating requests (429 above it) |
 | `RATE_COMMENT_PER_HOUR` | `60` | per-user limit for comments (429 above it) |
+| `TELEGRAM_BOT_TOKEN` | – | enables the Telegram bot (see below); secret, never logged |
+| `TELEGRAM_BOT_URL` | – | `https://t.me/<bot>` shown by the UI / QR (default derived from the bot username) |
+| `APP_BASE_URL` | `http://localhost:8080` | deep links in bot messages |
+| `TELEGRAM_API_BASE` | `https://api.telegram.org` | Bot API endpoint (tests) |
 
 No secrets are needed: sessions are random tokens stored hashed (SHA-256) in the DB.
+
+## Telegram bot (CR4)
+
+Module `internal/modules/telegram`. It starts **only when `TELEGRAM_BOT_TOKEN` is set**; without it nothing runs (no
+goroutines), `GET /telegram/status` answers `enabled:false`, `GET /telegram/link-code` is 404 and
+`/meta` must report `features.telegram=false` (`Config.TelegramEnabled()`).
+
+1. Create a bot with @BotFather, set `TELEGRAM_BOT_TOKEN` (and `TELEGRAM_BOT_URL`, `APP_BASE_URL`) in `.env`, restart.
+   No public URL is needed: the bot uses `getUpdates` long polling (25 s) and stops with the server (graceful).
+2. The user opens the Telegram page in the web UI (`GET /telegram/link-code`): a 6-character code (alphabet without
+   `0 O 1 I L`) that rotates every 20 s; the previous code stays valid for 3 s more. Codes live in an in-memory TTL
+   cache behind `telegram.Cache` (swap in Redis by implementing `Get/Set/Delete`; one node needs nothing).
+3. The user sends the code to the bot (`/start CODE`, or `/start` and then the code, or just the code). The chat is bound
+   to the user forever (`telegram_links`, one user = one chat, no unlink anywhere). Codes are single use; 5 wrong codes
+   per minute per chat lead to a cooldown. All existing notifications are marked as delivered, so no history is sent.
+4. A worker (every 2 s) mirrors every unread-by-Telegram notification of linked users (`notifications.telegram_sent_at
+   IS NULL`) in order, as plain Russian text with an «Открыть» button to `APP_BASE_URL/requests/{id}` (Telegram rejects
+   localhost URLs in buttons, so for local runs the link is added to the text). Delivery is at-least-once and restart
+   safe; a message that fails 5 times is marked sent with an error log. Admins get the admin notifications
+   (unrouted requests, overdue escalations) through the same path.
+5. Commands (Russian replies, same services and authorization as the web API with the linked user as `Actor`):
+   `/start /help /me /my /inbox` (staff) `/request MV-0001 /answer MV-0001 text /admin` (admin). Anonymous requests are
+   not reachable from the bot. Sends are limited to 25 msg/s overall and 1 msg/s per chat with `retry_after` handling.
+
+Security: the token is only used inside request URLs and is stripped from every error; chat ids are never returned by
+the API; every update is handled under panic recovery; message and argument lengths are capped.
+Tests use a fake Telegram API (`TELEGRAM_API_BASE`); a real token is not needed.
 
 ## Test
 
@@ -75,7 +106,7 @@ cmd/server            entrypoint (flags --seed, --seed-only)
 migrations            ordered *.sql (embedded), *.down.sql for manual rollback
 internal/app          config, composition root (modules.go = the only module registry), router
 internal/platform     db, migrate, httpx (JSON, error envelope, middleware), authz (Actor, scope), eventbus, apperr
-internal/modules      identity · org · requests · insights · notifications
+internal/modules      identity · org · requests · insights · notifications · telegram
 internal/integrations ports (Notifier, DirectoryProvider, TaskSink, IdentityProvider), LogNotifier; bitrix24/onec/email stubs
 internal/seed         synthetic demo data
 internal/webui        go:embed of dist/ (copy web/dist here before `go build`), SPA history fallback

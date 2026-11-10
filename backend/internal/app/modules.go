@@ -11,6 +11,7 @@ import (
 	"modusvoice/internal/modules/notifications"
 	"modusvoice/internal/modules/org"
 	"modusvoice/internal/modules/requests"
+	"modusvoice/internal/modules/telegram"
 	"modusvoice/internal/seed"
 )
 
@@ -39,6 +40,11 @@ func (a *App) registerModules() []HTTPModule {
 		CreatePerHour: a.Cfg.CreatePerHour, CommentPerHour: a.Cfg.CommentPerHour,
 	}, a.Loc)
 	a.Insights.Service.SetOverdueLister(a.Requests.Service)
+	tg := telegram.New(telegram.Deps{
+		DB: a.DB, Now: now, Log: a.Log, Notifications: a.Notifications.Service,
+		Cfg:      telegram.Config{Token: a.Cfg.TelegramBotToken, BotURL: a.Cfg.TelegramBotURL, AppBaseURL: a.Cfg.AppBaseURL, APIBase: a.Cfg.TelegramAPIBase},
+		Requests: &telegram.RequestsAdapter{Svc: a.Requests.Service, DB: a.DB, Loc: a.Loc, Now: now},
+	})
 
 	// non-critical event subscribers
 	a.Bus.Subscribe("*", logSubscriber(a.Log))
@@ -47,5 +53,8 @@ func (a *App) registerModules() []HTTPModule {
 	if !a.Cfg.DisableTicker {
 		a.runners = append(a.runners, a.Requests.Service)
 	}
-	return []HTTPModule{a.Identity, a.Org, a.Notifications, a.Requests, a.Insights}
+	if tg.Enabled() { // no token: no goroutines at all (routes still answer enabled=false / 404)
+		a.runners = append(a.runners, tg)
+	}
+	return []HTTPModule{a.Identity, a.Org, a.Notifications, a.Requests, a.Insights, tg}
 }

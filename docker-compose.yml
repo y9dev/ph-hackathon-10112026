@@ -2,6 +2,9 @@
 services:
   modus-voice:
     build: .
+    env_file:
+      - path: .env        # optional (Compose >= 2.24): Telegram settings, see .env.example
+        required: false
     ports:
       - "8080:8080"
     environment:
@@ -9,6 +12,11 @@ services:
       DATA_DIR: /data
       DEMO_MODE: "true"   # shows the demo-accounts panel on the login page; keep OFF in production
       SEED_DEMO: "true"   # seeds synthetic data only when the database is empty
+      # Telegram bot starts only when TELEGRAM_BOT_TOKEN is non-empty (values come from .env or the shell)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_URL: ${TELEGRAM_BOT_URL:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-https://api.telegram.org}
     volumes:
       - modus-data:/data
     restart: unless-stopped
