@@ -5,7 +5,12 @@
 - Planned clock: skeleton by 2026-11-11 04:49 (25%), feature freeze 2026-11-12 04:49 (75%), final gate + demo materials 2026-11-12 10:00–16:49.
 - Model policy: auto (high tier alias: opus). Routine implementation one tier lower per hackathon rule; reviewers/security/gate never lowered.
 - Docs language: English (internal). UI language: Russian. Jury-facing README/pitch: Russian (decide at gate).
-- Current stage: 1–2 (merged approval gate)
+- Current stage: 6 (implementation) started 2026-11-10 ~18:00. Stages 1–5 done inline (hackathon lightweight).
+- User approved (2026-11-10): scope as in PRD + ARCH §11; pseudonymous anonymity; RU jury docs.
+- Telegram: progress posts to team chat 5473304763 as account zeril9 (user-authorized, grant issued). Short messages.
+- Architecture review: sew-architecture-reviewer (sonnet), 3 High / 6 Medium / 2 Low, resolved in ARCH §11.
+- Running: backend engineer (sew-backend-engineer, opus) owns backend/**; frontend engineer (sew-frontend-engineer, opus) owns web/**; orchestrator owns root files + docs.
+- Contract frozen: docs/api/openapi.yaml.
 
 ## Capabilities (probed 2026-11-10)
 - Go 1.26.4, Node 24.16, npm 11.16, git 2.54, Docker 29.5, Playwright 1.65 (npx, browsers not yet verified)

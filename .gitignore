@@ -9,7 +9,7 @@ data/
 *.log
 backend/internal/webui/dist/*
 !backend/internal/webui/dist/.gitkeep
-!backend/internal/webui/dist/index.html
 .claude/
 test-results/
 playwright-report/
+.omc/

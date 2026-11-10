@@ -1,0 +1,16 @@
+# Demo stack: one container, SQLite on a named volume, synthetic seed data.
+services:
+  modus-voice:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      ADDR: ":8080"
+      DATA_DIR: /data
+      DEMO_MODE: "true"   # shows the demo-accounts panel on the login page; keep OFF in production
+      SEED_DEMO: "true"   # seeds synthetic data only when the database is empty
+    volumes:
+      - modus-data:/data
+    restart: unless-stopped
+volumes:
+  modus-data:
