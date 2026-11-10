@@ -8,6 +8,7 @@ import (
 // Fact is one request reduced to what analytics needs.
 type Fact struct {
 	ID               int64
+	Type             string
 	Status           string
 	Category         string
 	Department       *string
@@ -40,6 +41,8 @@ type Store interface {
 	Docs(ctx context.Context, scope Scope, since time.Time, limit int) ([]Doc, error)
 	Candidates(ctx context.Context, categoryID *int64, since time.Time, limit int) ([]Doc, error)
 	Facts(ctx context.Context, scope Scope, from, to *time.Time, departmentID *int64) ([]Fact, error)
+	// ResolutionHours returns created->closed hours of terminal requests CLOSED within [from, to).
+	ResolutionHours(ctx context.Context, scope Scope, from, to *time.Time, departmentID *int64) ([]float64, error)
 	FirstCreated(ctx context.Context, scope Scope) (*time.Time, error)
 	ThemeRows(ctx context.Context, scope Scope) ([]ThemeRow, error)
 }

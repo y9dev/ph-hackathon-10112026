@@ -58,7 +58,7 @@ func (s *SQLiteStore) Docs(ctx context.Context, scope Scope, since time.Time, li
 }
 
 func (s *SQLiteStore) Facts(ctx context.Context, scope Scope, from, to *time.Time, departmentID *int64) ([]Fact, error) {
-	q := `SELECT r.id, r.status, c.name, d.name, r.created_at, r.first_response_due, r.resolution_due, r.first_responded_at, r.closed_at,
+	q := `SELECT r.id, r.type, r.status, c.name, d.name, r.created_at, r.first_response_due, r.resolution_due, r.first_responded_at, r.closed_at,
 		CASE WHEN r.result_text IS NOT NULL AND length(trim(r.result_text)) > 0 THEN 1 ELSE 0 END,
 		EXISTS(SELECT 1 FROM request_events e WHERE e.request_id = r.id AND e.kind = 'routed' AND e.meta = 'rule')
 		FROM requests r JOIN categories c ON c.id = r.category_id LEFT JOIN departments d ON d.id = r.department_id
@@ -88,7 +88,7 @@ func (s *SQLiteStore) Facts(ctx context.Context, scope Scope, from, to *time.Tim
 		var created, frd, rd int64
 		var fra, closed sql.NullInt64
 		var hasResult, auto int
-		if err := rows.Scan(&f.ID, &f.Status, &f.Category, &dept, &created, &frd, &rd, &fra, &closed, &hasResult, &auto); err != nil {
+		if err := rows.Scan(&f.ID, &f.Type, &f.Status, &f.Category, &dept, &created, &frd, &rd, &fra, &closed, &hasResult, &auto); err != nil {
 			return nil, err
 		}
 		f.Department = db.NullStr(dept)

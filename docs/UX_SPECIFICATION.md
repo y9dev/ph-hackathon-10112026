@@ -54,7 +54,7 @@ motion: 120–200 ms ease-out; respects prefers-reduced-motion
 ```
 Status is always icon + text + colour. SLA chips: ok (grey "до 12.11 18:00"), soon (<25% left, warning), overdue (danger, "Просрочено на 6 ч"), paused (info, "Ждём автора").
 
-## 6. Copy rules for anonymity (shown in the form)
+## 6. Copy rules for anonymity (SUPERSEDED by ARCHITECTURE §13 CR2: no author is stored; access by secret token)
 "Ваше имя не увидят ни руководитель, ни администратор — только вы. Но содержание обращения, вложения и время могут подсказать, кто его написал. Отвечать на уточнения вы сможете в системе." Checkbox label: "Отправить анонимно".
 
 ## 7. Accessibility & responsiveness acceptance

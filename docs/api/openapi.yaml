@@ -281,6 +281,7 @@ components:
             overdue_count: {type: integer}
             auto_routed_share: {type: number}
         by_status: {type: array, items: {type: object, properties: {status: {$ref: '#/components/schemas/Status'}, count: {type: integer}}}}
+        by_type: {type: array, description: "counts per request type (problem, idea, feedback) for the period, plus closed count", items: {type: object, properties: {type: {$ref: '#/components/schemas/RequestType'}, count: {type: integer}, closed: {type: integer}}}}
         by_category: {type: array, items: {type: object, properties: {category: {type: string}, count: {type: integer}, implemented: {type: integer}, declined: {type: integer}, open: {type: integer}}}}
         by_department: {type: array, items: {type: object, properties: {department: {type: string}, count: {type: integer}, open: {type: integer}, overdue: {type: integer}}}}
         timeseries: {type: array, description: "daily or weekly buckets", items: {type: object, properties: {date: {type: string, format: date}, created: {type: integer}, closed: {type: integer}}}}
