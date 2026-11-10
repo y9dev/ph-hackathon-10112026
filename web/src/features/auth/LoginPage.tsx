@@ -1,14 +1,12 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
+import { Navigate, useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
-import { CircleAlert, MessageSquareText, Route, BadgeCheck, ChevronRight, UserRound, Briefcase, ShieldCheck, KeyRound } from 'lucide-react';
+import { CircleAlert, MessageSquareText, Route, BadgeCheck } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
-import { qk } from '@/shared/api/queries';
-import type { DemoUser, Role } from '@/shared/api/types';
 import { ru } from '@/shared/i18n/ru';
-import { Button, FormField, Input, Skeleton, useDocumentTitle } from '@/shared/ui';
+import { Button, FormField, Input, useDocumentTitle } from '@/shared/ui';
 import { Logo } from '@/app/Logo';
 import { homePath, useAuth } from './AuthProvider';
 
@@ -37,20 +35,6 @@ export default function LoginPage() {
       navigate(next ?? homePath(u.role), { replace: true });
     },
   });
-  const demo = useQuery({
-    queryKey: qk.demoUsers,
-    queryFn: async () => {
-      try {
-        return await api.demoUsers();
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return null; // demo mode off
-        throw e;
-      }
-    },
-    retry: false,
-    staleTime: Infinity,
-  });
-
   if (user) return <Navigate to={next ?? homePath(user.role)} replace />;
 
   const err = login.error;
@@ -64,12 +48,6 @@ export default function LoginPage() {
       : err
         ? ru.errors.generic
         : null;
-
-  function demoLogin(u: DemoUser) {
-    if (!demo.data) return;
-    form.reset({ email: u.email, password: demo.data.password_hint });
-    login.mutate({ email: u.email, password: demo.data.password_hint });
-  }
 
   return (
     <div className="min-h-dvh bg-bg">
@@ -122,68 +100,7 @@ export default function LoginPage() {
                 {ru.auth.submit}
               </Button>
             </form>
-            <Link
-              to="/anonymous"
-              className="mt-4 flex min-h-11 items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm font-medium text-brand transition-colors duration-150 hover:border-border-strong hover:bg-surface-2"
-            >
-              <KeyRound className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                {ru.auth.anonymousLink}
-                <span className="block text-xs font-normal text-muted">{ru.auth.anonymousLinkHint}</span>
-              </span>
-              <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
-            </Link>
           </div>
-
-          {demo.isPending && (
-            <div className="rounded-xl border border-border bg-surface p-6" aria-hidden="true">
-              <Skeleton className="h-5 w-40" />
-              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {[0, 1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-16" />
-                ))}
-              </div>
-            </div>
-          )}
-          {demo.data && demo.data.users.length > 0 && (
-            <section aria-labelledby="demo-title" className="rounded-xl border border-dashed border-border-strong bg-surface p-6 max-sm:p-4">
-              <h2 id="demo-title" className="text-base font-semibold text-text">
-                {ru.auth.demoTitle}
-              </h2>
-              <p className="mt-1 text-sm text-muted">
-                {ru.auth.demoLead} {ru.auth.demoPassword(demo.data.password_hint)}
-              </p>
-              <ul className="mt-4 grid grid-cols-1 gap-2">
-                {demo.data.users.map((u) => {
-                  const role = (u.role in ru.roles ? u.role : 'employee') as Role;
-                  const Icon = role === 'admin' ? ShieldCheck : role === 'manager' ? Briefcase : UserRound;
-                  return (
-                    <li key={u.email}>
-                      <button
-                        type="button"
-                        onClick={() => demoLogin(u)}
-                        disabled={login.isPending}
-                        aria-label={ru.auth.demoLoginAs(u.title && u.title !== u.name ? `${u.name}, ${u.title} (${ru.roles[role]})` : `${u.name} (${ru.roles[role]})`)}
-                        className="group flex w-full items-center gap-3 rounded-lg border border-border bg-surface px-3 py-3 text-left transition-[border-color,background-color] duration-150 hover:border-brand hover:bg-brand-soft disabled:opacity-60"
-                      >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted transition-colors duration-150 group-hover:bg-surface group-hover:text-brand" aria-hidden="true">
-                          <Icon className="h-4 w-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-text">{u.name}</span>
-                          <span className="block truncate text-xs text-muted">
-                            {ru.roles[role]}
-                            {u.title && u.title !== u.name ? ` · ${u.title}` : ''}
-                          </span>
-                        </span>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          )}
         </div>
       </main>
     </div>

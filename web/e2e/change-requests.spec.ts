@@ -99,9 +99,7 @@ test.describe('CR2 anonymity by token', () => {
     const ctx = isMock(test.info()) ? null : await browser.newContext({ baseURL, locale: 'ru-RU' });
     if (!ctx) await logout(page);
     const anon = ctx ? await ctx.newPage() : page;
-    await anon.goto('/login');
-    await anon.getByRole('link', { name: /Проверить анонимное обращение по токену/ }).click();
-    await expect(anon).toHaveURL(/\/anonymous$/);
+    await anon.goto('/anonymous');
     await anon.getByLabel('Токен доступа').fill(`  ${token.toLowerCase().replace(/-/g, ' ')} `);
     await anon.getByRole('button', { name: 'Открыть обращение' }).click();
     await expect(anon.getByRole('heading', { level: 1, name: title })).toBeVisible();
@@ -319,7 +317,9 @@ test.describe('CR4 Telegram', () => {
   test('hidden everywhere when the bot is disabled (features.telegram=false)', async ({ page }, info) => {
     test.skip(!isMock(info), 'mock switch ?mockTelegram=off');
     await page.goto('/login?mockTelegram=off');
-    await page.getByRole('button', { name: ROLES.employee }).first().click();
+    await page.getByLabel('Почта').fill('purchasing.employee@modus.demo');
+    await page.getByLabel('Пароль').fill('Demo1234!');
+    await page.getByRole('button', { name: 'Войти', exact: true }).click();
     await expect(page.getByRole('navigation', { name: 'Основная навигация' }).first()).toBeVisible();
     await page.getByRole('button', { name: /Открыть уведомления/ }).click();
     await expect(page.getByRole('link', { name: 'Все уведомления' })).toBeVisible();

@@ -23,9 +23,23 @@ export function isMock(info: TestInfo): boolean {
   return String(info.project.use.baseURL ?? '').includes(':5174');
 }
 
+const EMAILS = new Map<RegExp, string>([
+  [ROLES.employee, 'purchasing.employee@modus.demo'],
+  [ROLES.sales, 'sales.manager@modus.demo'],
+  [ROLES.purchasingHead, 'purchasing.head@modus.demo'],
+  [ROLES.it, 'it.specialist@modus.demo'],
+  [ROLES.observer, 'design.head@modus.demo'],
+  [ROLES.admin, 'admin@modus.demo'],
+]);
+
+/** The login page has no demo-accounts panel: sign in through the form with the seeded password. */
 export async function loginAs(page: Page, role: RegExp) {
+  const email = EMAILS.get(role);
+  if (!email) throw new Error(`unknown role ${role}`);
   await page.goto('/login');
-  await page.getByRole('button', { name: role }).first().click();
+  await page.getByLabel('Почта').fill(email);
+  await page.getByLabel('Пароль').fill('Demo1234!');
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Основная навигация' }).first()).toBeVisible();
 }
 

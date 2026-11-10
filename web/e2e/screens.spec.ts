@@ -27,7 +27,6 @@ async function shoot(page: Page, name: string, fullPage = true) {
 
 test('employee screens', async ({ page }) => {
   await page.goto('/login');
-  await expect(page.getByRole('heading', { name: 'Демо-аккаунты' })).toBeVisible();
   await shoot(page, '01-login');
 
   await loginAs(page, ROLES.employee);
