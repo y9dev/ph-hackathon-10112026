@@ -18,23 +18,27 @@ const (
 	StatusNew         Status = "new"
 	StatusInReview    Status = "in_review"
 	StatusNeedsInfo   Status = "needs_info"
-	StatusAccepted    Status = "accepted"
+	StatusDecision    Status = "decision"
+	StatusInProgress  Status = "in_progress"
 	StatusImplemented Status = "implemented"
 	StatusDeclined    Status = "declined"
 	StatusDuplicate   Status = "duplicate"
+	StatusClosed      Status = "closed"
 )
 
 // AllStatuses in display order.
-var AllStatuses = []Status{StatusNew, StatusInReview, StatusNeedsInfo, StatusAccepted, StatusImplemented, StatusDeclined, StatusDuplicate}
+var AllStatuses = []Status{StatusNew, StatusInReview, StatusNeedsInfo, StatusDecision, StatusInProgress, StatusImplemented, StatusDeclined, StatusDuplicate, StatusClosed}
 
 var statusLabels = map[Status]string{
 	StatusNew:         "Новое",
-	StatusInReview:    "На рассмотрении",
+	StatusInReview:    "В проработке",
 	StatusNeedsInfo:   "Нужно уточнение",
-	StatusAccepted:    "Принято",
+	StatusDecision:    "Принятие решения",
+	StatusInProgress:  "Реализация",
 	StatusImplemented: "Реализовано",
 	StatusDeclined:    "Отклонено",
 	StatusDuplicate:   "Дубликат",
+	StatusClosed:      "Закрыто",
 }
 
 // Label returns the Russian label.
@@ -45,15 +49,16 @@ func (s Status) Valid() bool { _, ok := statusLabels[s]; return ok }
 
 // Terminal reports whether s closes the request.
 func (s Status) Terminal() bool {
-	return s == StatusImplemented || s == StatusDeclined || s == StatusDuplicate
+	return s == StatusImplemented || s == StatusDeclined || s == StatusDuplicate || s == StatusClosed
 }
 
-// transitions is the R4 table.
+// transitions is the R10 table.
 var transitions = map[Status][]Status{
-	StatusNew:       {StatusInReview, StatusNeedsInfo, StatusAccepted, StatusDeclined, StatusDuplicate},
-	StatusInReview:  {StatusNeedsInfo, StatusAccepted, StatusDeclined, StatusDuplicate},
-	StatusNeedsInfo: {StatusInReview},
-	StatusAccepted:  {StatusImplemented, StatusDeclined},
+	StatusNew:        {StatusInReview, StatusNeedsInfo, StatusDecision, StatusDeclined, StatusDuplicate, StatusClosed},
+	StatusInReview:   {StatusNeedsInfo, StatusDecision, StatusDeclined, StatusDuplicate, StatusClosed},
+	StatusNeedsInfo:  {StatusInReview, StatusClosed},
+	StatusDecision:   {StatusInProgress, StatusInReview, StatusDeclined, StatusClosed},
+	StatusInProgress: {StatusImplemented, StatusDeclined, StatusDecision, StatusClosed},
 }
 
 // CanTransition reports whether from -> to is allowed.
@@ -77,11 +82,12 @@ const (
 	KindQuestion = "question"
 	KindAnswer   = "answer"
 	KindInternal = "internal"
+	KindReport   = "report"
 )
 
 // ValidCommentKind reports whether k is a known comment kind.
 func ValidCommentKind(k string) bool {
-	return k == KindComment || k == KindQuestion || k == KindAnswer || k == KindInternal
+	return k == KindComment || k == KindQuestion || k == KindAnswer || k == KindInternal || k == KindReport
 }
 
 // Routing sources.
@@ -101,6 +107,11 @@ const (
 	EvOverdue          = "overdue"
 	EvOverdueEscalated = "overdue_escalated"
 )
+
+// CanReport reports whether a progress report may be posted in status s.
+func CanReport(s Status) bool {
+	return s == StatusInReview || s == StatusDecision || s == StatusInProgress
+}
 
 // Limits from the contract.
 const (

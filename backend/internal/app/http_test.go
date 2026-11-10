@@ -104,7 +104,7 @@ func TestJourneys(t *testing.T) {
 	resp, body = mgr.json("POST", path+"/status", map[string]any{"status": "in_review"})
 	expect(t, resp, body, 200)
 	d := decode[requests.Detail](t, body)
-	if d.SLA.FirstRespondedAt == nil || !contains(d.AllowedStatuses, "accepted") || !d.CanAssign {
+	if d.SLA.FirstRespondedAt == nil || !contains(d.AllowedStatuses, "decision") || !d.CanAssign {
 		t.Fatalf("after in_review: %s", body)
 	}
 	resp, body = mgr.json("POST", path+"/status", map[string]any{"status": "implemented"})
@@ -130,7 +130,8 @@ func TestJourneys(t *testing.T) {
 	expect(t, resp, body, 201)
 
 	// close with result (AC-03)
-	mgr.json("POST", path+"/status", map[string]any{"status": "accepted"})
+	mgr.json("POST", path+"/status", map[string]any{"status": "decision"})
+	mgr.json("POST", path+"/status", map[string]any{"status": "in_progress"})
 	resp, body = mgr.json("POST", path+"/status", map[string]any{"status": "implemented", "result_text": "  "})
 	expect(t, resp, body, 400)
 	if ee := decode[errEnvelope](t, body); ee.Error.Code != "validation_failed" || ee.Error.Fields["result_text"] == "" {
@@ -366,7 +367,9 @@ func TestAnonymity(t *testing.T) {
 	author.json("POST", p+"/comments", map[string]any{"kind": "answer", "body": "Монтажный участок"})
 	author.json("POST", p+"/comments", map[string]any{"kind": "comment", "body": "Дополнение от автора"})
 	mgr.json("POST", p+"/theme", map[string]any{"title": "Переработки"})
-	mgr.json("POST", p+"/status", map[string]any{"status": "accepted"})
+	mgr.json("POST", p+"/status", map[string]any{"status": "decision"})
+	resp, body = mgr.json("POST", p+"/comments", map[string]any{"kind": "report", "body": "Подготовлен черновик, согласуем с отделом"})
+	expect(t, resp, body, 201)     // progress report on an anonymous request must not leak the author either
 	e.clk.Advance(150 * time.Hour) // (< 7-day session TTL) make it overdue so it appears in analytics overdue list
 	if _, err := e.app.Requests.Service.CheckOverdue(ctx); err != nil {
 		t.Fatal(err)
@@ -541,6 +544,23 @@ func TestSeedDemo(t *testing.T) {
 	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users)
 	if total < 65 || anonCount < 6 || users < 20 {
 		t.Fatalf("seed volume: requests=%d anon=%d users=%d", total, anonCount, users)
+	}
+	var inProgress, decision, reports int
+	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM requests WHERE status = 'in_progress'`).Scan(&inProgress)
+	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM requests WHERE status = 'decision'`).Scan(&decision)
+	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM comments WHERE kind = 'report'`).Scan(&reports)
+	if inProgress < 6 || decision < 1 || reports < inProgress {
+		t.Fatalf("seed lifecycle: in_progress=%d decision=%d reports=%d", inProgress, decision, reports)
+	}
+	var closedSeed int
+	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM requests WHERE status = 'closed' AND result_text IS NOT NULL AND closed_at IS NOT NULL`).Scan(&closedSeed)
+	if closedSeed < 2 {
+		t.Fatalf("seed must contain closed requests with result: %d", closedSeed)
+	}
+	var legacy int
+	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM request_events WHERE to_status = 'accepted' OR from_status = 'accepted'`).Scan(&legacy)
+	if legacy != 0 {
+		t.Fatalf("seed still references accepted: %d", legacy)
 	}
 	var adminID int64
 	_ = e.app.DB.QueryRow(`SELECT id FROM users WHERE email = 'admin@modus.demo'`).Scan(&adminID)

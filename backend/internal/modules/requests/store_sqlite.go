@@ -15,10 +15,10 @@ import (
 // writes touch only tables owned by this module.
 type SQLiteStore struct{ DB *sql.DB }
 
-const terminalSQL = `('implemented','declined','duplicate')`
+const terminalSQL = `('implemented','declined','duplicate','closed')`
 
 // overdueSQL mirrors OverdueKindAt; it takes two ? (now, now).
-const overdueSQL = `(r.status IN ('new','in_review','accepted') AND ((r.first_responded_at IS NULL AND r.first_response_due < ?) OR r.resolution_due < ?))`
+const overdueSQL = `(r.status IN ('new','in_review','decision','in_progress') AND ((r.first_responded_at IS NULL AND r.first_response_due < ?) OR r.resolution_due < ?))`
 
 const rowCols = `r.id, r.number, r.type, r.category_id, c.name, r.title, r.status, r.author_id, au.name, r.is_anonymous,
 	r.department_id, d.name, r.assignee_id, asg.name, r.routing_source, r.first_response_due, r.resolution_due,
@@ -169,10 +169,10 @@ func where(f ListFilter, includeTabStatus bool) (string, []any) {
 		}
 		switch f.Tab {
 		case "needs_action":
-			conds = append(conds, "(r.status = 'new' OR (r.status IN ('in_review','accepted') AND "+overdueSQL+"))")
+			conds = append(conds, "(r.status = 'new' OR r.status = 'decision' OR "+overdueSQL+")")
 			args = append(args, now, now)
 		case "in_progress":
-			conds = append(conds, "r.status IN ('in_review','accepted')")
+			conds = append(conds, "r.status IN ('in_review','decision','in_progress')")
 		case "waiting_author":
 			conds = append(conds, "r.status = 'needs_info'")
 		case "closed":
@@ -264,8 +264,8 @@ func (s *SQLiteStore) Counts(ctx context.Context, f ListFilter) (Counts, error) 
 	w, args := where(f, false)
 	now := db.Unix(f.Now)
 	q := `SELECT
-		IFNULL(SUM(CASE WHEN r.status = 'new' OR (r.status IN ('in_review','accepted') AND ` + overdueSQL + `) THEN 1 ELSE 0 END),0),
-		IFNULL(SUM(CASE WHEN r.status IN ('in_review','accepted') THEN 1 ELSE 0 END),0),
+		IFNULL(SUM(CASE WHEN r.status = 'new' OR r.status = 'decision' OR ` + overdueSQL + ` THEN 1 ELSE 0 END),0),
+		IFNULL(SUM(CASE WHEN r.status IN ('in_review','decision','in_progress') THEN 1 ELSE 0 END),0),
 		IFNULL(SUM(CASE WHEN r.status = 'needs_info' THEN 1 ELSE 0 END),0),
 		IFNULL(SUM(CASE WHEN r.status IN ` + terminalSQL + ` THEN 1 ELSE 0 END),0),
 		COUNT(*),

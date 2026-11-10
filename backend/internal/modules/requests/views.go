@@ -189,6 +189,9 @@ func allowedFor(r Row, viewer authz.Actor) (statuses []Status, kinds []string, c
 		if r.Status == StatusNew || r.Status == StatusInReview || r.Status == StatusNeedsInfo {
 			kinds = append(kinds, KindQuestion)
 		}
+		if !isAuthor && CanReport(r.Status) {
+			kinds = append(kinds, KindReport)
+		}
 		if !isAuthor { // authors never see internal notes, so they cannot write them either
 			kinds = append(kinds, KindInternal)
 		}

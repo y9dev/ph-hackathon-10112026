@@ -45,22 +45,50 @@ func Up(ctx context.Context, d *sql.DB, fsys fs.FS) ([]string, error) {
 		if err != nil {
 			return applied, fmt.Errorf("read migration %s: %w", n, err)
 		}
-		tx, err := d.BeginTx(ctx, nil)
-		if err != nil {
-			return applied, fmt.Errorf("begin migration %s: %w", version, err)
-		}
-		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
-			_ = tx.Rollback()
-			return applied, fmt.Errorf("apply migration %s: %w", version, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)`, version, time.Now().UTC().Unix()); err != nil {
-			_ = tx.Rollback()
-			return applied, fmt.Errorf("record migration %s: %w", version, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return applied, fmt.Errorf("commit migration %s: %w", version, err)
+		if err := applyOne(ctx, d, version, string(body)); err != nil {
+			return applied, err
 		}
 		applied = append(applied, version)
 	}
 	return applied, nil
+}
+
+// applyOne runs one migration in a transaction on a dedicated connection with foreign keys
+// switched off (required to rebuild tables referenced by FKs without cascading deletes; the
+// pragma is a no-op inside a transaction). Integrity is verified before commit.
+func applyOne(ctx context.Context, d *sql.DB, version, body string) error {
+	conn, err := d.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("conn for migration %s: %w", version, err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("disable fk: %w", err)
+	}
+	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA foreign_keys = ON`) }()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration %s: %w", version, err)
+	}
+	if _, err := tx.ExecContext(ctx, body); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("apply migration %s: %w", version, err)
+	}
+	var violations int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("fk check %s: %w", version, err)
+	}
+	if violations > 0 {
+		_ = tx.Rollback()
+		return fmt.Errorf("migration %s leaves %d foreign key violations", version, violations)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)`, version, time.Now().UTC().Unix()); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("record migration %s: %w", version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %s: %w", version, err)
+	}
+	return nil
 }

@@ -25,10 +25,18 @@ Demo accounts (synthetic), password `Demo1234!` for all:
 | Manager, Продажи / Закупки / Проектирование / Пусконаладка | a.melnikov@ / o.nazarova@ / d.lebedev@ / i.gromov@modus.demo |
 | Employee | i.sidorov@modus.demo, a.petrova@modus.demo (+12 more) |
 
-The seed is deterministic: ~70 requests over the last 90 days, all statuses, 4 similarity clusters
+The seed is deterministic: ~75 requests over the last 90 days, all statuses, 4 similarity clusters
 (double entry 1С/Битрикс24, late supplier shipments, no commissioning checklist, slow 1С reports),
 ~12% anonymous, ~8 overdue, category «Другое» has no routing rule (unrouted admin queue).
 After start the overdue ticker emits overdue notifications/escalations for the seeded data.
+
+## Request lifecycle (ARCHITECTURE R10)
+
+Statuses: `new`, `in_review` (В проработке), `needs_info`, `decision` (Принятие решения), `in_progress` (Реализация),
+terminal `implemented`, `declined`, `duplicate`, `closed` (Закрыто). Terminal statuses require `result_text`;
+`closed` is reachable from every open status. Staff in scope add progress reports (comment kind `report`) while the
+request is `in_review`, `decision` or `in_progress`; the author is notified (also when anonymous).
+Migration `0002_lifecycle` maps legacy `accepted` to `in_progress`.
 
 ## Configuration (env or `.env`, see `.env.example`)
 

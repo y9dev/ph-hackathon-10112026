@@ -14,6 +14,7 @@ const (
 	KindAssigned         = "assigned"
 	KindOverdue          = "overdue"
 	KindOverdueEscalated = "overdue_escalated"
+	KindReport           = "report"
 )
 
 // Note is a notification to be written.

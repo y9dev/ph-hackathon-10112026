@@ -276,7 +276,7 @@ type CommentInput struct {
 // AddComment adds a comment/question/answer/internal note with the workflow side effects.
 func (s *Service) AddComment(ctx context.Context, a authz.Actor, id int64, in CommentInput) (Detail, error) {
 	if !ValidCommentKind(in.Kind) {
-		return Detail{}, apperr.Invalid("kind", "Тип: comment, question, answer или internal")
+		return Detail{}, apperr.Invalid("kind", "Тип: comment, question, answer, internal или report")
 	}
 	body := strings.TrimSpace(in.Body)
 	if n := utf8.RuneCountInString(body); n < 1 || n > CommentMax || !utf8.ValidString(body) {
@@ -321,6 +321,13 @@ func (s *Service) AddComment(ctx context.Context, a authz.Actor, id int64, in Co
 			if !staff || isAuthor {
 				return apperr.Forbidden()
 			}
+		case KindReport:
+			if !staff || isAuthor {
+				return apperr.Forbidden()
+			}
+			if !CanReport(r.Status) {
+				return apperr.Conflict("Отчёт о ходе можно добавить, пока обращение в проработке, на принятии решения или в реализации")
+			}
 		}
 		if _, err := s.Store.InsertComment(ctx, tx, id, a.UserID, in.Kind, body, now); err != nil {
 			return err
@@ -354,6 +361,9 @@ func (s *Service) AddComment(ctx context.Context, a authz.Actor, id int64, in Co
 		var ns []notifications.Note
 		switch {
 		case in.Kind == KindInternal:
+		case in.Kind == KindReport:
+			ns = notes([]int64{r.Author.ID}, notifications.KindReport, id,
+				fmt.Sprintf("%s: отчёт о ходе работ", r.Number), short)
 		case in.Kind == KindQuestion:
 			topic = eventbus.RequestQuestionAsked
 			ns = notes([]int64{r.Author.ID}, notifications.KindQuestion, id, fmt.Sprintf("%s: нужен ваш ответ", r.Number), short)

@@ -262,7 +262,7 @@ func (s *seeder) setStatus(st *reqState, actor int64, to string, text *string) e
 		st.paused = &t
 	}
 	st.status = to
-	if to == "implemented" || to == "declined" || to == "duplicate" {
+	if to == "implemented" || to == "declined" || to == "duplicate" || to == "closed" {
 		t := st.cur
 		st.closed = &t
 	}
@@ -279,8 +279,8 @@ func (s *seeder) setStatus(st *reqState, actor int64, to string, text *string) e
 	return s.notify(st.authorID, "status_changed", st.id, fmt.Sprintf("%s: статус «%s»", st.number, statusLabel[to]), body, st.cur)
 }
 
-var statusLabel = map[string]string{"new": "Новое", "in_review": "На рассмотрении", "needs_info": "Нужно уточнение", "accepted": "Принято",
-	"implemented": "Реализовано", "declined": "Отклонено", "duplicate": "Дубликат"}
+var statusLabel = map[string]string{"new": "Новое", "in_review": "В проработке", "needs_info": "Нужно уточнение", "decision": "Принятие решения",
+	"in_progress": "Реализация", "implemented": "Реализовано", "declined": "Отклонено", "duplicate": "Дубликат", "closed": "Закрыто"}
 
 func (s *seeder) comment(st *reqState, author int64, kind, body string) error {
 	_, err := s.exec(`INSERT INTO comments(request_id, author_id, kind, body, created_at) VALUES (?,?,?,?,?)`, st.id, author, kind, body, db.Unix(st.cur))
@@ -358,7 +358,7 @@ func (s *seeder) history(st *reqState, t reqSeed, frH, seq int) error {
 	case "needs_info":
 		s.advance(st, s.firstResponseDelay(frH)*0.6)
 		return ask()
-	case "accepted", "implemented":
+	case "decision", "in_progress", "implemented":
 		if err := review(); err != nil {
 			return err
 		}
@@ -371,8 +371,26 @@ func (s *seeder) history(st *reqState, t reqSeed, frH, seq int) error {
 			}
 		}
 		s.advance(st, 8+s.rnd.Float64()*60)
-		if err := s.setStatus(st, staff, "accepted", ptr(pick(s.rnd, acceptTexts))); err != nil {
+		if err := s.setStatus(st, staff, "decision", ptr(pick(s.rnd, decisionTexts))); err != nil {
 			return err
+		}
+		if t.st == "decision" {
+			return nil
+		}
+		s.advance(st, 6+s.rnd.Float64()*40)
+		if err := s.setStatus(st, staff, "in_progress", ptr(pick(s.rnd, inProgressTexts))); err != nil {
+			return err
+		}
+		reports := 1 + (seq+len(t.title))%3
+		for i := 0; i < reports; i++ {
+			s.advance(st, 12+s.rnd.Float64()*48)
+			txt := progressReports[(seq*3+i*5)%len(progressReports)]
+			if err := s.comment(st, staff, "report", txt); err != nil {
+				return err
+			}
+			if err := s.notify(st.authorID, "report", st.id, st.number+": отчёт о ходе работ", txt, st.cur); err != nil {
+				return err
+			}
 		}
 		if t.st == "implemented" {
 			s.advance(st, 72+s.rnd.Float64()*400)
@@ -385,6 +403,12 @@ func (s *seeder) history(st *reqState, t reqSeed, frH, seq int) error {
 		}
 		s.advance(st, 10+s.rnd.Float64()*70)
 		return s.closeWith(st, staff, "declined", result("Отклонено после рассмотрения: предложенное решение сейчас нецелесообразно."))
+	case "closed":
+		if err := review(); err != nil {
+			return err
+		}
+		s.advance(st, 6+s.rnd.Float64()*48)
+		return s.closeWith(st, staff, "closed", result("Закрыто: вопрос решён в рабочем порядке, дополнительных действий не требуется."))
 	case "duplicate":
 		s.advance(st, s.firstResponseDelay(frH))
 		s.staffAction(st)

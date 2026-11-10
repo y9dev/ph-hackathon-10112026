@@ -12,10 +12,11 @@ import (
 
 func TestTransitionTable(t *testing.T) {
 	allowed := map[Status][]Status{
-		StatusNew:       {StatusInReview, StatusNeedsInfo, StatusAccepted, StatusDeclined, StatusDuplicate},
-		StatusInReview:  {StatusNeedsInfo, StatusAccepted, StatusDeclined, StatusDuplicate},
-		StatusNeedsInfo: {StatusInReview},
-		StatusAccepted:  {StatusImplemented, StatusDeclined},
+		StatusNew:        {StatusInReview, StatusNeedsInfo, StatusDecision, StatusDeclined, StatusDuplicate, StatusClosed},
+		StatusInReview:   {StatusNeedsInfo, StatusDecision, StatusDeclined, StatusDuplicate, StatusClosed},
+		StatusNeedsInfo:  {StatusInReview, StatusClosed},
+		StatusDecision:   {StatusInProgress, StatusInReview, StatusDeclined, StatusClosed},
+		StatusInProgress: {StatusImplemented, StatusDeclined, StatusDecision, StatusClosed},
 	}
 	for _, from := range AllStatuses {
 		for _, to := range AllStatuses {
@@ -30,7 +31,7 @@ func TestTransitionTable(t *testing.T) {
 			}
 		}
 	}
-	for _, s := range []Status{StatusImplemented, StatusDeclined, StatusDuplicate} {
+	for _, s := range []Status{StatusImplemented, StatusDeclined, StatusDuplicate, StatusClosed} {
 		if !s.Terminal() || len(AllowedTransitions(s)) != 0 {
 			t.Errorf("%s must be terminal without transitions (no reopen in MVP)", s)
 		}
@@ -56,7 +57,7 @@ func TestComputeSLA(t *testing.T) {
 		{"new past first-response due", StatusNew, nil, created.Add(30 * time.Hour), SLAOverdue, OverdueFirstResponse, 6},
 		{"partial hour rounds up", StatusNew, nil, fr.Add(10 * time.Minute), SLAOverdue, OverdueFirstResponse, 1},
 		{"responded, before resolution due", StatusInReview, &responded, created.Add(30 * time.Hour), SLAOk, "", 0},
-		{"accepted past resolution due", StatusAccepted, &responded, res.Add(5 * time.Hour), SLAOverdue, OverdueResolution, 5},
+		{"in_progress past resolution due", StatusInProgress, &responded, res.Add(5 * time.Hour), SLAOverdue, OverdueResolution, 5},
 		{"needs_info is paused even when late", StatusNeedsInfo, &responded, res.Add(50 * time.Hour), SLAPaused, "", 0},
 		{"closed is done", StatusImplemented, &responded, res.Add(500 * time.Hour), SLADone, "", 0},
 		{"no first response and resolution passed reports first response", StatusInReview, nil, res.Add(time.Hour), SLAOverdue, OverdueFirstResponse, 97},
@@ -95,9 +96,9 @@ func TestApplyTransitionPausesAndShiftsDeadlines(t *testing.T) {
 	if want := t0.Add(34 * time.Hour); !r.FirstResponseDue.Equal(want) {
 		t.Fatalf("first response due %v want %v", r.FirstResponseDue, want)
 	}
-	applyTransition(&r, StatusAccepted, t0.Add(13*time.Hour))
+	applyTransition(&r, StatusInProgress, t0.Add(13*time.Hour))
 	if r.ClosedAt != nil {
-		t.Fatal("accepted is not terminal")
+		t.Fatal("in_progress is not terminal")
 	}
 	applyTransition(&r, StatusImplemented, t0.Add(14*time.Hour))
 	if r.ClosedAt == nil {
