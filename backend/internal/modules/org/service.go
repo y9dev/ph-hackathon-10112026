@@ -143,7 +143,7 @@ func (s *Service) applyRule(ctx context.Context, r *Rule, in RuleInput, create b
 		if in.RequestType.Null || in.RequestType.V == "" {
 			r.RequestType = nil
 		} else if !ValidRequestType(in.RequestType.V) {
-			v.Add("request_type", "Тип: problem, idea или пусто (любой)")
+			v.Add("request_type", "Тип: problem, idea, feedback или пусто (любой)")
 		} else {
 			t := in.RequestType.V
 			r.RequestType = &t

@@ -37,7 +37,7 @@ func (a *App) registerModules() []HTTPModule {
 	a.Requests = requests.New(requests.Deps{
 		DB: a.DB, Org: a.Org.Service, People: a.Identity.Service, Notifier: a.Notifications.Service,
 		Similar: a.Insights.Service, Bus: a.Bus, Now: now, UploadDir: filepath.Join(a.Cfg.DataDir, "uploads"), Log: a.Log,
-		CreatePerHour: a.Cfg.CreatePerHour, CommentPerHour: a.Cfg.CommentPerHour,
+		CreatePerHour: a.Cfg.CreatePerHour, CommentPerHour: a.Cfg.CommentPerHour, TelegramEnabled: a.Cfg.TelegramEnabled(),
 	}, a.Loc)
 	a.Insights.Service.SetOverdueLister(a.Requests.Service)
 	tg := telegram.New(telegram.Deps{

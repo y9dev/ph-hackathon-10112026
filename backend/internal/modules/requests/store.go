@@ -17,11 +17,12 @@ type Row struct {
 	ID               int64
 	Number           string
 	Type             string
+	Priority         string
 	CategoryID       int64
 	CategoryName     string
 	Title            string
 	Status           Status
-	Author           AuthorRef
+	Author           AuthorRef // ID 0 for anonymous requests (no author link is stored, CR2)
 	DepartmentID     *int64
 	DepartmentName   *string
 	AssigneeID       *int64
@@ -64,8 +65,10 @@ type NewRequest struct {
 	Title            string
 	Body             string
 	ProposedSolution *string
-	AuthorID         int64
+	Priority         string
+	AuthorID         *int64 // nil for anonymous requests
 	IsAnonymous      bool
+	AnonTokenHash    *string // SHA-256 hex of the anonymous token (anonymous requests only)
 	DepartmentID     *int64
 	AssigneeID       *int64
 	RoutingSource    string
@@ -77,13 +80,24 @@ type NewRequest struct {
 // Event is a request_events row.
 type Event struct {
 	RequestID  int64
-	ActorID    *int64
+	ActorID    *int64 // nil for system events and for author-side events of anonymous requests
+	ByAuthor   bool   // the request author performed it (rendered through AuthorView)
 	Kind       string
 	FromStatus *Status
 	ToStatus   *Status
 	Text       *string
 	Meta       *string
 	At         time.Time
+}
+
+// NewComment is inserted by AddComment and the anonymous author endpoint.
+type NewComment struct {
+	RequestID int64
+	AuthorID  *int64
+	ByAuthor  bool
+	Kind      string
+	Body      string
+	At        time.Time
 }
 
 // EventRow is an event with actor info for the timeline.
@@ -97,7 +111,8 @@ type EventRow struct {
 // CommentRow is a comment with author info.
 type CommentRow struct {
 	ID        int64
-	AuthorID  int64
+	AuthorID  int64 // 0 for author-side comments of anonymous requests
+	ByAuthor  bool
 	Name      string
 	Role      authz.Role
 	Kind      string
@@ -131,6 +146,8 @@ type ListFilter struct {
 	AssigneeID   *int64
 	AssigneeNone bool
 	Overdue      *bool
+	Priority     string
+	RequestType  string
 	Query        string
 	Tab          string
 	Sort         string
@@ -156,9 +173,12 @@ type Store interface {
 	NextNumber(ctx context.Context, q db.Querier) (int64, error)
 	InsertRequest(ctx context.Context, q db.Querier, r NewRequest) (int64, error)
 	InsertEvent(ctx context.Context, q db.Querier, e Event) error
-	InsertComment(ctx context.Context, q db.Querier, requestID, authorID int64, kind, body string, at time.Time) (int64, error)
-	InsertAttachment(ctx context.Context, q db.Querier, requestID, uploadedBy int64, f storedFile, at time.Time) error
+	// InsertComment stores a comment; authorID is nil only for author-side comments of anonymous requests.
+	InsertComment(ctx context.Context, q db.Querier, c NewComment) (int64, error)
+	InsertAttachment(ctx context.Context, q db.Querier, requestID int64, uploadedBy *int64, f storedFile, at time.Time) error
 	Get(ctx context.Context, q db.Querier, id int64) (DetailRow, error)
+	// ByTokenHash returns the anonymous request with this token hash and the stored hash (ErrNotFound otherwise).
+	ByTokenHash(ctx context.Context, q db.Querier, hash string) (DetailRow, string, error)
 	Save(ctx context.Context, q db.Querier, r DetailRow) error
 	HasEvent(ctx context.Context, q db.Querier, requestID int64, kind, meta string) (bool, error)
 

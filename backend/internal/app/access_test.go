@@ -28,8 +28,9 @@ func check(t *testing.T, cell string, err error, want apperr.Kind) {
 	}
 }
 
-// TestAccessMatrix covers every cell of ARCHITECTURE §5 for a request routed to department A:
-// author (employee), other employee, manager in scope, manager out of scope, admin.
+// TestAccessMatrix covers every cell of ARCHITECTURE §5 (amended by CR6) for a request routed to
+// department A: author (employee), other employee, manager in scope (owner), manager out of scope
+// (observer: reads everything, may add comment/internal only -> 403 for owner actions), admin.
 func TestAccessMatrix(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -48,31 +49,31 @@ func TestAccessMatrix(t *testing.T) {
 		want   cellWant
 	}{
 		{"read", func(a authz.Actor, id int64) error { _, err := svc.Get(ctx, a, id); return err },
-			cellWant{"author": ok, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindNotFound, "admin": ok}},
+			cellWant{"author": ok, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": ok, "admin": ok}},
 		{"comment", func(a authz.Actor, id int64) error {
 			_, err := svc.AddComment(ctx, a, id, requests.CommentInput{Kind: requests.KindComment, Body: "текст"})
 			return err
-		}, cellWant{"author": ok, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindNotFound, "admin": ok}},
+		}, cellWant{"author": ok, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": ok, "admin": ok}},
 		{"internal note", func(a authz.Actor, id int64) error {
 			_, err := svc.AddComment(ctx, a, id, requests.CommentInput{Kind: requests.KindInternal, Body: "внутр"})
 			return err
-		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindNotFound, "admin": ok}},
+		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": ok, "admin": ok}},
 		{"question", func(a authz.Actor, id int64) error {
 			_, err := svc.AddComment(ctx, a, id, requests.CommentInput{Kind: requests.KindQuestion, Body: "уточните"})
 			return err
-		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindNotFound, "admin": ok}},
+		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindForbidden, "admin": ok}},
 		{"change status", func(a authz.Actor, id int64) error {
 			_, err := svc.ChangeStatus(ctx, a, id, requests.StatusInput{Status: "in_review"})
 			return err
-		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindNotFound, "admin": ok}},
+		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindForbidden, "admin": ok}},
 		{"assign", func(a authz.Actor, id int64) error {
 			_, err := svc.Assign(ctx, a, id, requests.AssignInput{AssigneeSet: true, AssigneeID: &f.admin})
 			return err
-		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindNotFound, "admin": ok}},
+		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindForbidden, "admin": ok}},
 		{"link theme", func(a authz.Actor, id int64) error {
 			_, err := svc.LinkTheme(ctx, a, id, requests.ThemeInput{Title: ptrS("Тема проверки")})
 			return err
-		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindNotFound, "admin": ok}},
+		}, cellWant{"author": apperr.KindForbidden, "other-employee": apperr.KindNotFound, "manager-in-scope": ok, "manager-out-of-scope": apperr.KindForbidden, "admin": ok}},
 	}
 	for _, c := range cases {
 		for _, w := range actors {
@@ -91,7 +92,7 @@ func TestAccessMatrix(t *testing.T) {
 	for _, w := range actors {
 		_, err := svc.AddComment(ctx, e.actor(w.id), r.ID, requests.CommentInput{Kind: requests.KindAnswer, Body: "ответ"})
 		want := map[string]apperr.Kind{"author": ok, "other-employee": apperr.KindNotFound, "manager-in-scope": apperr.KindForbidden,
-			"manager-out-of-scope": apperr.KindNotFound, "admin": apperr.KindForbidden}[w.name]
+			"manager-out-of-scope": apperr.KindForbidden, "admin": apperr.KindForbidden}[w.name]
 		check(t, "answer/"+w.name, err, want)
 		if err == nil {
 			break // status went back to in_review
@@ -125,7 +126,7 @@ func TestAccessMatrix(t *testing.T) {
 		}
 	}
 
-	// analytics: employees forbidden, manager scoped, admin all
+	// analytics: employees forbidden; CR6: managers and admin company-wide
 	for _, w := range actors {
 		sum, err := e.app.Insights.Service.Summary(ctx, e.actor(w.id), insights.SummaryFilter{})
 		_, gerr := e.app.Insights.Service.SuggestedGroups(ctx, e.actor(w.id))
@@ -137,15 +138,8 @@ func TestAccessMatrix(t *testing.T) {
 			continue
 		}
 		check(t, "analytics/"+w.name, err, ok)
-		switch w.name {
-		case "manager-out-of-scope":
-			if sum.KPIs.Total != 0 {
-				t.Errorf("analytics: out-of-scope manager sees %d requests", sum.KPIs.Total)
-			}
-		default:
-			if sum.KPIs.Total == 0 {
-				t.Errorf("analytics/%s: expected requests in scope", w.name)
-			}
+		if sum.KPIs.Total == 0 {
+			t.Errorf("analytics/%s: expected company-wide requests", w.name)
 		}
 	}
 
@@ -170,8 +164,12 @@ func TestManagerScopeIncludesAssignedRequests(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	r := e.create(e.fx.emp1, e.fx.catA, false)
-	if _, err := e.app.Requests.Service.Get(ctx, e.actor(e.fx.mgrNone), r.ID); !apperr.Is(err, apperr.KindNotFound) {
-		t.Fatalf("not yet assigned: %v", err)
+	// CR6: before the assignment the manager is an observer: reads, but cannot act
+	if d, err := e.app.Requests.Service.Get(ctx, e.actor(e.fx.mgrNone), r.ID); err != nil || d.AccessLevel != requests.AccessObserver {
+		t.Fatalf("not yet assigned: %v %s", err, d.AccessLevel)
+	}
+	if _, err := e.app.Requests.Service.ChangeStatus(ctx, e.actor(e.fx.mgrNone), r.ID, requests.StatusInput{Status: "in_review"}); !apperr.Is(err, apperr.KindForbidden) {
+		t.Fatalf("observer status change: %v", err)
 	}
 	if _, err := e.app.Requests.Service.Assign(ctx, e.actor(e.fx.mgrA), r.ID, requests.AssignInput{AssigneeSet: true, AssigneeID: &e.fx.mgrNone}); err != nil {
 		t.Fatal(err)
@@ -211,8 +209,9 @@ func TestRoutingAndAdminRuleChange(t *testing.T) {
 	if !notifiedAbout(n.Items, r.ID) {
 		t.Fatal("admin must be notified about unrouted request")
 	}
-	if _, err := e.app.Requests.Service.Get(ctx, e.actor(f.mgrA), r.ID); err == nil {
-		t.Fatal("managers must not see the unrouted request")
+	// CR6: managers read the unrouted request as observers but cannot take it over
+	if d, err := e.app.Requests.Service.Get(ctx, e.actor(f.mgrA), r.ID); err != nil || d.AccessLevel != requests.AccessObserver || d.CanAssign {
+		t.Fatalf("unrouted request for a manager: %v %s", err, d.AccessLevel)
 	}
 	// AC-10: admin adds a rule, the next request follows it
 	admin := e.actor(f.admin)

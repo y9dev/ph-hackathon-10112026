@@ -14,7 +14,6 @@ import (
 	"modusvoice/internal/modules/notifications"
 	"modusvoice/internal/modules/requests"
 	"modusvoice/internal/platform/eventbus"
-	"modusvoice/internal/seed"
 )
 
 var pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 64)...)
@@ -177,8 +176,12 @@ func TestJourneys(t *testing.T) {
 	}
 	resp, body = e.login("emp2@test.kz").get(attPath)
 	expect(t, resp, body, 404)
+	// CR6: a manager of another department reads the card as an observer (no owner actions)
 	resp, body = e.login("mgrb@test.kz").get(path)
-	expect(t, resp, body, 404)
+	expect(t, resp, body, 200)
+	if obs := decode[requests.Detail](t, body); obs.AccessLevel != requests.AccessObserver || len(obs.AllowedStatuses) != 0 || obs.CanAssign {
+		t.Fatalf("observer view: %s %v %v", obs.AccessLevel, obs.AllowedStatuses, obs.CanAssign)
+	}
 }
 
 func timelineKinds(t *testing.T, c *client, path string) string {
@@ -355,17 +358,22 @@ func TestAnonymity(t *testing.T) {
 		"body": "Бригады регулярно работают до ночи без компенсации переработок.", "is_anonymous": true}, file{"scan.pdf", []byte("%PDF-1.4")})
 	expect(t, resp, body, 201)
 	anon := decode[requests.Detail](t, body)
-	if !anon.Author.IsMe || !anon.Author.Anonymous {
-		t.Fatalf("author must see own anonymous request: %+v", anon.Author)
+	if !anon.Author.IsMe || !anon.Author.Anonymous || anon.AnonymousToken == nil || anon.AccessLevel != requests.AccessAuthor {
+		t.Fatalf("author must see own anonymous request with the token: %+v %v", anon.Author, anon.AnonymousToken)
 	}
+	token := *anon.AnonymousToken
 	// a similar non-anonymous request so similar/group endpoints have content
 	e.create(f.emp2, f.catA, false)
 	mgr := e.login("mgra@test.kz")
 	admin := e.login("admin@test.kz")
 	p := fmt.Sprintf("/api/v1/requests/%d", anon.ID)
-	mgr.json("POST", p+"/comments", map[string]any{"kind": "question", "body": "Уточните отдел"})
-	author.json("POST", p+"/comments", map[string]any{"kind": "answer", "body": "Монтажный участок"})
-	author.json("POST", p+"/comments", map[string]any{"kind": "comment", "body": "Дополнение от автора"})
+	tokenHolder := e.anon() // CR2: the author follows the request by token only (no session needed)
+	resp, body = mgr.json("POST", p+"/comments", map[string]any{"kind": "question", "body": "Уточните отдел"})
+	expect(t, resp, body, 201)
+	resp, body = tokenHolder.json("POST", "/api/v1/anonymous/comments", map[string]any{"token": token, "body": "Монтажный участок"})
+	expect(t, resp, body, 201)
+	resp, body = tokenHolder.json("POST", "/api/v1/anonymous/comments", map[string]any{"token": token, "body": "Дополнение от автора"})
+	expect(t, resp, body, 201)
 	mgr.json("POST", p+"/theme", map[string]any{"title": "Переработки"})
 	mgr.json("POST", p+"/status", map[string]any{"status": "decision"})
 	resp, body = mgr.json("POST", p+"/comments", map[string]any{"kind": "report", "body": "Подготовлен черновик, согласуем с отделом"})
@@ -384,7 +392,12 @@ func TestAnonymity(t *testing.T) {
 		"admin": {p, "/api/v1/requests?scope=all", "/api/v1/requests?scope=inbox&assignee=none", "/api/v1/notifications",
 			"/api/v1/analytics/summary", "/api/v1/analytics/suggested-groups", "/api/v1/themes", "/api/v1/requests/export.csv"},
 	}
-	clients := map[string]*client{"other-employee": e.login("emp2@test.kz"), "manager": mgr, "admin": admin}
+	// CR6: a manager of another department (observer) reads everything too
+	endpoints["observer"] = []string{p, "/api/v1/requests?scope=all", "/api/v1/notifications", "/api/v1/analytics/summary", "/api/v1/themes",
+		"/api/v1/requests/export.csv?scope=all", fmt.Sprintf("/api/v1/attachments/%d", anon.Attachments[0].ID)}
+	// the former author's own session sees nothing of it
+	endpoints["author-session"] = []string{"/api/v1/requests?scope=mine", "/api/v1/notifications"}
+	clients := map[string]*client{"other-employee": e.login("emp2@test.kz"), "manager": mgr, "admin": admin, "observer": e.login("mgrb@test.kz"), "author-session": author}
 	sawAnonLabel := false
 	for who, paths := range endpoints {
 		for _, path := range paths {
@@ -407,10 +420,13 @@ func TestAnonymity(t *testing.T) {
 	if !sawAnonLabel {
 		t.Fatal("anonymous label never rendered: test is not exercising the mapper")
 	}
-	// the author still sees their own name and can track it
-	_, body = author.get(p)
-	if !strings.Contains(string(body), "Сотрудник Первый") {
-		t.Fatal("author must see own identity")
+	// CR2: the session cannot open it (no link), the token holder can, as the author
+	resp, body = author.get(p)
+	expect(t, resp, body, 404)
+	resp, body = tokenHolder.json("POST", "/api/v1/anonymous/lookup", map[string]string{"token": token})
+	expect(t, resp, body, 200)
+	if v := decode[requests.Detail](t, body); !v.Author.IsMe || v.AccessLevel != requests.AccessAuthor || strings.Contains(string(body), `"kind":"internal"`) {
+		t.Fatalf("token view: %+v %s", v.Author, v.AccessLevel)
 	}
 	// control: a non-anonymous request does show the author's name to the manager
 	open := e.create(f.emp1, f.catA, false)
@@ -425,8 +441,7 @@ func TestAnonymity(t *testing.T) {
 				t.Errorf("event %s leaks author id", ev.Topic)
 			}
 		}
-	}
-	// service-level: summary for admin contains the overdue anonymous request masked
+	} // service-level: summary for admin contains the overdue anonymous request masked
 	sum, err := e.app.Insights.Service.Summary(ctx, e.actor(f.admin), insights.SummaryFilter{})
 	if err != nil || len(sum.Overdue) == 0 {
 		t.Fatalf("overdue list: %v %d", err, len(sum.Overdue))
@@ -481,7 +496,7 @@ func TestCSVExport(t *testing.T) {
 		t.Fatalf("csv must start with BOM and be an attachment")
 	}
 	s := string(body)
-	if !strings.Contains(s, "Номер;Тип;Категория") || !strings.Contains(s, requests.AnonymousLabel) || strings.Count(s, "Сотрудник Первый") != 1 {
+	if !strings.Contains(s, "Номер;Тип;Приоритет;Категория") || !strings.Contains(s, ";Средний;") || !strings.Contains(s, requests.AnonymousLabel) || strings.Count(s, "Сотрудник Первый") != 1 {
 		t.Fatalf("csv content: %s", s)
 	}
 }
@@ -525,68 +540,4 @@ func TestAdminUserManagement(t *testing.T) {
 	expect(t, resp, body, 200)
 }
 
-// TestSeedDemo checks the demo seed loads, is idempotent, and yields the 4 deliberate clusters.
-func TestSeedDemo(t *testing.T) {
-	e := newEnv(t)
-	ctx := context.Background()
-	// seed needs an empty DB: wipe the fixture
-	for _, q := range []string{`DELETE FROM routing_rules`, `DELETE FROM categories`, `UPDATE departments SET head_user_id = NULL`, `DELETE FROM users`, `DELETE FROM departments`} {
-		e.exec(q)
-	}
-	if err := seed.Run(ctx, e.app.DB, e.clk.Now(), "$2a$04$invalidhashforseedtestxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"); err != nil {
-		t.Fatal(err)
-	}
-	if err := seed.Run(ctx, e.app.DB, e.clk.Now(), "x"); err != seed.ErrAlreadySeeded {
-		t.Fatalf("second seed: %v", err)
-	}
-	var total, anonCount, users int
-	_ = e.app.DB.QueryRow(`SELECT COUNT(*), SUM(is_anonymous) FROM requests`).Scan(&total, &anonCount)
-	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users)
-	if total < 65 || anonCount < 6 || users < 20 {
-		t.Fatalf("seed volume: requests=%d anon=%d users=%d", total, anonCount, users)
-	}
-	var inProgress, decision, reports int
-	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM requests WHERE status = 'in_progress'`).Scan(&inProgress)
-	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM requests WHERE status = 'decision'`).Scan(&decision)
-	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM comments WHERE kind = 'report'`).Scan(&reports)
-	if inProgress < 6 || decision < 1 || reports < inProgress {
-		t.Fatalf("seed lifecycle: in_progress=%d decision=%d reports=%d", inProgress, decision, reports)
-	}
-	var closedSeed int
-	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM requests WHERE status = 'closed' AND result_text IS NOT NULL AND closed_at IS NOT NULL`).Scan(&closedSeed)
-	if closedSeed < 2 {
-		t.Fatalf("seed must contain closed requests with result: %d", closedSeed)
-	}
-	var legacy int
-	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM request_events WHERE to_status = 'accepted' OR from_status = 'accepted'`).Scan(&legacy)
-	if legacy != 0 {
-		t.Fatalf("seed still references accepted: %d", legacy)
-	}
-	var adminID int64
-	_ = e.app.DB.QueryRow(`SELECT id FROM users WHERE email = 'admin@modus.demo'`).Scan(&adminID)
-	admin := e.actor(adminID)
-	groups, err := e.app.Insights.Service.SuggestedGroups(ctx, admin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(groups) < 4 {
-		t.Fatalf("want >= 4 suggested groups, got %d", len(groups))
-	}
-	sum, err := e.app.Insights.Service.Summary(ctx, admin, insights.SummaryFilter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, st := range sum.ByStatus {
-		if st.Count == 0 {
-			t.Errorf("status %s not represented in seed", st.Status)
-		}
-	}
-	if sum.KPIs.OutcomeShare != 1 || sum.KPIs.OverdueCount == 0 || sum.KPIs.MedianFirstResponseHours == nil {
-		t.Fatalf("seed KPIs: %+v", sum.KPIs)
-	}
-	var unrouted int
-	_ = e.app.DB.QueryRow(`SELECT COUNT(*) FROM requests WHERE routing_source = 'unrouted'`).Scan(&unrouted)
-	if unrouted == 0 {
-		t.Fatal("seed must show the unrouted flow")
-	}
-}
+// TestSeedDemo moved to cr_seed_test.go (CR1: dataset-only seed).

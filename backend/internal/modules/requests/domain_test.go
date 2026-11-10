@@ -149,26 +149,111 @@ func TestResolveRouteFallback(t *testing.T) {
 }
 
 func TestAuthorView(t *testing.T) {
-	author := AuthorRef{ID: 3, Name: "Иван Сидоров", IsAnonymous: true}
-	if v := AuthorView(author, authz.Actor{UserID: 9, Role: authz.RoleAdmin}); v.Name != AnonymousLabel || !v.Anonymous || v.IsMe {
-		t.Fatalf("admin must see anonymous label: %+v", v)
+	// CR2: anonymous requests carry no author id/name at all
+	author := AuthorRef{IsAnonymous: true}
+	tests := []struct {
+		name     string
+		author   AuthorRef
+		viewer   authz.Actor
+		wantName string
+		wantAnon bool
+		wantMe   bool
+	}{
+		{"admin sees label", author, authz.Actor{UserID: 9, Role: authz.RoleAdmin}, AnonymousLabel, true, false},
+		{"zero-id viewer is never the author", author, authz.Actor{UserID: 0}, AnonymousLabel, true, false},
+		{"token holder sees label as me", AuthorRef{ID: anonSelfID, IsAnonymous: true}, anonAuthorViewer(), AnonymousLabel, true, true},
+		{"named author sees self", AuthorRef{ID: 3, Name: "Иван Сидоров"}, authz.Actor{UserID: 3}, "Иван Сидоров", false, true},
+		{"named visible to others", AuthorRef{ID: 3, Name: "Иван Сидоров"}, authz.Actor{UserID: 9}, "Иван Сидоров", false, false},
 	}
-	if v := AuthorView(author, authz.Actor{UserID: 3}); v.Name != "Иван Сидоров" || !v.IsMe {
-		t.Fatalf("author sees self: %+v", v)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := AuthorView(tc.author, tc.viewer)
+			if v.Name != tc.wantName || v.Anonymous != tc.wantAnon || v.IsMe != tc.wantMe {
+				t.Fatalf("got %+v", v)
+			}
+		})
 	}
-	open := AuthorRef{ID: 3, Name: "Иван Сидоров"}
-	if v := AuthorView(open, authz.Actor{UserID: 9}); v.Name != "Иван Сидоров" || v.Anonymous {
-		t.Fatalf("non-anonymous visible: %+v", v)
-	}
-	// actions by the anonymous author are masked in the timeline too
-	if v := ActorView(ptr(int64(3)), "Иван Сидоров", authz.RoleEmployee, author, authz.Actor{UserID: 9}); v.Name != AnonymousLabel {
+	// author-side rows (by_author) of anonymous requests are masked in the timeline too
+	if v := ActorView(nil, true, "", "", author, authz.Actor{UserID: 9}); v.Name != AnonymousLabel || !v.Anonymous {
 		t.Fatalf("author actor must be masked: %+v", v)
 	}
-	if v := ActorView(ptr(int64(9)), "Елена", authz.RoleManager, author, authz.Actor{UserID: 3}); v.Name != "Елена" || v.Role == nil {
+	named := AuthorRef{ID: 3, Name: "Иван Сидоров"}
+	if v := ActorView(ptr(int64(3)), false, "Иван Сидоров", authz.RoleEmployee, named, authz.Actor{UserID: 9}); v.Name != "Иван Сидоров" {
+		t.Fatalf("legacy author row by id: %+v", v)
+	}
+	if v := ActorView(ptr(int64(9)), false, "Елена", authz.RoleManager, author, authz.Actor{UserID: 3}); v.Name != "Елена" || v.Role == nil {
 		t.Fatalf("staff actor carries role: %+v", v)
 	}
-	if v := ActorView(nil, "", "", author, authz.Actor{UserID: 3}); v.Name != SystemLabel {
+	if v := ActorView(nil, false, "", "", author, authz.Actor{UserID: 3}); v.Name != SystemLabel {
 		t.Fatalf("system actor: %+v", v)
+	}
+}
+
+func TestAnonymousToken(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		tok, err := NewAnonymousToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tok) != tokenSymbols+tokenSymbols/tokenGroup-1 || seen[tok] {
+			t.Fatalf("bad or repeated token %q", tok)
+		}
+		seen[tok] = true
+		c, ok := CanonicalToken(strings.ToLower(tok))
+		if !ok || len(c) != tokenSymbols || HashAnonymousToken(tok) != HashAnonymousToken(" "+strings.ToLower(tok)+" ") {
+			t.Fatalf("canonical form of %q: %q %v", tok, c, ok)
+		}
+	}
+	tests := []struct {
+		in string
+		ok bool
+	}{
+		{"0000-0000-0000-0000-0000-0000-0000", true},
+		{"oooo-iiii-llll-0000-0000-0000-0000", true},  // look-alikes
+		{"0000-0000-0000-0000-0000-0000-000", false},  // too short
+		{"0000-0000-0000-0000-0000-0000-000U", false}, // U not in alphabet
+		{"ЖЖЖЖ-0000-0000-0000-0000-0000-0000", false},
+		{strings.Repeat("0", 200), false},
+	}
+	for _, tc := range tests {
+		if _, ok := CanonicalToken(tc.in); ok != tc.ok {
+			t.Errorf("CanonicalToken(%q) ok=%v want %v", tc.in, ok, tc.ok)
+		}
+	}
+	if HashAnonymousToken("oooo-iiii-llll-0000-0000-0000-0000") != HashAnonymousToken("0000-1111-1111-0000-0000-0000-0000") {
+		t.Fatal("look-alikes must hash identically")
+	}
+}
+
+func TestPriorityAndTypeValidation(t *testing.T) {
+	base := CreateInput{Type: TypeFeedback, CategoryID: 1, Title: "Заголовок", Body: strings.Repeat("а", 20)}
+	tests := []struct {
+		priority string
+		wantErr  bool
+		want     string
+	}{
+		{"", false, PriorityMedium},
+		{"low", false, PriorityLow},
+		{" high ", false, PriorityHigh},
+		{"urgent", true, ""},
+	}
+	for _, tc := range tests {
+		in := base
+		in.Priority = tc.priority
+		in.Normalize()
+		err := in.Validate()
+		if (err != nil) != tc.wantErr || (!tc.wantErr && in.Priority != tc.want) {
+			t.Errorf("priority %q: err=%v priority=%q", tc.priority, err, in.Priority)
+		}
+	}
+	for _, typ := range AllTypes {
+		if !ValidType(typ) || TypeLabel(typ) == "" {
+			t.Errorf("type %s must be valid and labelled", typ)
+		}
+	}
+	if TypeLabel(TypeFeedback) != "Положительный отзыв" {
+		t.Fatal("feedback label")
 	}
 }
 

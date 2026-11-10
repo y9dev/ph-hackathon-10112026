@@ -22,14 +22,8 @@ func TestLifecycleMigrationFromAccepted(t *testing.T) {
 	}
 	defer d.Close()
 
-	first := fstest.MapFS{}
-	for _, name := range []string{"0001_init.sql"} {
-		b, err := fs.ReadFile(migrations.FS, name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		first[name] = &fstest.MapFile{Data: b}
-	}
+	first := subset(t, "0001_init.sql")
+	upTo0002 := subset(t, "0001_init.sql", "0002_lifecycle.sql") // later migrations are tested on their own
 	if applied, err := migrate.Up(ctx, d, first); err != nil || len(applied) != 1 {
 		t.Fatalf("0001: %v %v", applied, err)
 	}
@@ -54,7 +48,7 @@ func TestLifecycleMigrationFromAccepted(t *testing.T) {
 	mustExec(`INSERT INTO request_events(request_id, kind, from_status, to_status, created_at) VALUES (1, 'status_changed', 'in_review', 'accepted', 1)`)
 	mustExec(`INSERT INTO request_events(request_id, kind, from_status, to_status, created_at) VALUES (1, 'status_changed', 'accepted', 'implemented', 2)`)
 
-	applied, err := migrate.Up(ctx, d, migrations.FS)
+	applied, err := migrate.Up(ctx, d, upTo0002)
 	if err != nil || len(applied) != 1 || applied[0] != "0002_lifecycle" {
 		t.Fatalf("0002: %v %v", applied, err)
 	}
@@ -105,7 +99,21 @@ func TestLifecycleMigrationFromAccepted(t *testing.T) {
 		t.Fatal("foreign key violations after migration")
 	}
 	// idempotent
-	if applied, err := migrate.Up(ctx, d, migrations.FS); err != nil || len(applied) != 0 {
+	if applied, err := migrate.Up(ctx, d, upTo0002); err != nil || len(applied) != 0 {
 		t.Fatalf("rerun: %v %v", applied, err)
 	}
+}
+
+// subset returns a migration FS holding only the named files of migrations.FS.
+func subset(t *testing.T, names ...string) fstest.MapFS {
+	t.Helper()
+	out := fstest.MapFS{}
+	for _, name := range names {
+		b, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[name] = &fstest.MapFile{Data: b}
+	}
+	return out
 }

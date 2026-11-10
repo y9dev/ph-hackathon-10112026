@@ -107,7 +107,7 @@ func TestReportPermissionsAndStatuses(t *testing.T) {
 	}{
 		{"author", f.emp1, apperr.KindForbidden},
 		{"other-employee", f.emp2, apperr.KindNotFound},
-		{"manager-out-of-scope", f.mgrB, apperr.KindNotFound},
+		{"manager-out-of-scope", f.mgrB, apperr.KindForbidden}, // CR6 observer: reads, may not report
 		{"manager-in-scope", f.mgrA, ok},
 		{"admin", f.admin, ok},
 	}
@@ -161,7 +161,7 @@ func TestReportPermissionsAndStatuses(t *testing.T) {
 			}
 		})
 	}
-	// manager out of scope stays 404 even over HTTP and the author gets 403 with the standard envelope
+	// CR6: the observer manager gets 403 over HTTP, as does the author, with the standard envelope
 	d := e.create(f.emp1, f.catA, false)
 	e.moveTo(d.ID, requests.StatusInReview)
 	path := fmt.Sprintf("/api/v1/requests/%d/comments", d.ID)
@@ -171,7 +171,7 @@ func TestReportPermissionsAndStatuses(t *testing.T) {
 	resp, b = e.login("emp1@test.kz").json("POST", path, body)
 	expect(t, resp, b, 403)
 	resp, b = e.login("mgrb@test.kz").json("POST", path, body)
-	expect(t, resp, b, 404)
+	expect(t, resp, b, 403)
 	resp, b = e.login("mgra@test.kz").json("POST", path, body)
 	expect(t, resp, b, 201)
 	// conflict carries a Russian message and no internals
@@ -213,27 +213,25 @@ func TestReportSideEffectsAnonymousAuthor(t *testing.T) {
 		t.Fatalf("timeline: %+v", last)
 	}
 
+	// CR2: the anonymous author has no account link, so no in-app notification is created for them
 	author := e.login("emp1@test.kz")
 	resp, body := author.get("/api/v1/notifications")
 	expect(t, resp, body, 200)
-	list := decode[notifications.List](t, body)
-	found := false
-	for _, n := range list.Items {
-		if n.Kind == "report" {
-			found = true
-			if n.RequestNumber != d.Number || !strings.Contains(n.Body, "Собрали") {
-				t.Fatalf("report notification: %+v", n)
-			}
+	for _, n := range decode[notifications.List](t, body).Items {
+		if n.RequestID == d.ID {
+			t.Fatalf("anonymous author must not be notified via the account: %+v", n)
 		}
 	}
-	if !found {
-		t.Fatalf("author (anonymous) must be notified about a report: %s", body)
-	}
-	// the author sees the report in their own card
+	// ...and the session cannot open the request; the token holder sees the report
 	resp, body = author.get(fmt.Sprintf("/api/v1/requests/%d", d.ID))
+	expect(t, resp, body, 404)
+	if d.AnonymousToken == nil {
+		t.Fatal("anonymous create must return the token")
+	}
+	resp, body = e.anon().json("POST", "/api/v1/anonymous/lookup", map[string]string{"token": *d.AnonymousToken})
 	expect(t, resp, body, 200)
 	if !strings.Contains(string(body), `"kind":"report"`) {
-		t.Fatalf("author card lacks the report: %s", body)
+		t.Fatalf("token holder's card lacks the report: %s", body)
 	}
 	// nobody else learns the author's identity from the report
 	for _, who := range []string{"mgra@test.kz", "admin@test.kz", "emp2@test.kz"} {

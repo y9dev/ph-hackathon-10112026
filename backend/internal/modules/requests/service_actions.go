@@ -39,9 +39,18 @@ func (s *Service) loadForUpdate(ctx context.Context, tx *sql.Tx, a authz.Actor, 
 	return r, nil
 }
 
-// markFirstResponse stamps first_responded_at on the first staff action by someone other than the author.
+// authorRecipients returns the author as a notification recipient; anonymous authors get none (CR2).
+func authorRecipients(r Row) []int64 {
+	if r.Author.IsAnonymous || r.Author.ID <= 0 {
+		return nil
+	}
+	return []int64{r.Author.ID}
+}
+
+// markFirstResponse stamps first_responded_at on the first OWNER action by someone other than the
+// author (observer actions never count, CR6).
 func markFirstResponse(r *Row, a authz.Actor, now time.Time) {
-	if r.FirstRespondedAt == nil && a.UserID != r.Author.ID && canManage(a, *r) {
+	if r.FirstRespondedAt == nil && !isAuthorOf(a, r.Author) && canManage(a, *r) {
 		t := now
 		r.FirstRespondedAt = &t
 	}
@@ -83,7 +92,7 @@ func (s *Service) ChangeStatus(ctx context.Context, a authz.Actor, id int64, in 
 		if err != nil {
 			return err
 		}
-		if r.Author.ID == a.UserID {
+		if isAuthorOf(a, r.Author) {
 			return apperr.Conflict(errOwnRequest)
 		}
 		if !CanTransition(r.Status, to) {
@@ -127,7 +136,7 @@ func (s *Service) ChangeStatus(ctx context.Context, a authz.Actor, id int64, in 
 			body = excerpt(result, 300)
 		}
 		saved = r
-		return s.Notifier.Write(ctx, tx, a.UserID, notes([]int64{r.Author.ID}, notifications.KindStatusChanged, id,
+		return s.Notifier.Write(ctx, tx, a.UserID, notes(authorRecipients(r.Row), notifications.KindStatusChanged, id,
 			fmt.Sprintf("%s: статус «%s»", r.Number, to.Label()), body))
 	})
 	if err != nil {
@@ -182,7 +191,7 @@ func (s *Service) Assign(ctx context.Context, a authz.Actor, id int64, in Assign
 		if err != nil {
 			return err
 		}
-		if r.Author.ID == a.UserID {
+		if isAuthorOf(a, r.Author) {
 			return apperr.Conflict(errOwnRequest)
 		}
 		if r.Status.Terminal() {
@@ -293,18 +302,19 @@ func (s *Service) AddComment(ctx context.Context, a authz.Actor, id int64, in Co
 		if err != nil {
 			return err
 		}
-		staff := canManage(a, r.Row)
-		isAuthor := r.Author.ID == a.UserID
+		owner := canManage(a, r.Row)
+		observer := isObserver(a, r.Row)
+		isAuthor := isAuthorOf(a, r.Author)
 		switch in.Kind {
 		case KindComment:
-			if !staff && !(isAuthor && !r.Status.Terminal()) {
+			if !owner && !observer && !(isAuthor && !r.Status.Terminal()) {
 				if isAuthor {
 					return apperr.Conflict("Обращение закрыто. Создайте новое обращение со ссылкой на номер " + r.Number)
 				}
 				return apperr.Forbidden()
 			}
 		case KindQuestion:
-			if !staff {
+			if !owner {
 				return apperr.Forbidden()
 			}
 			if r.Status != StatusNew && r.Status != StatusInReview && r.Status != StatusNeedsInfo {
@@ -318,18 +328,18 @@ func (s *Service) AddComment(ctx context.Context, a authz.Actor, id int64, in Co
 				return apperr.Conflict("Ответить на уточнение можно, только когда оно запрошено")
 			}
 		case KindInternal:
-			if !staff || isAuthor {
+			if (!owner && !observer) || isAuthor {
 				return apperr.Forbidden()
 			}
 		case KindReport:
-			if !staff || isAuthor {
+			if !owner || isAuthor {
 				return apperr.Forbidden()
 			}
 			if !CanReport(r.Status) {
 				return apperr.Conflict("Отчёт о ходе можно добавить, пока обращение в проработке, на принятии решения или в реализации")
 			}
 		}
-		if _, err := s.Store.InsertComment(ctx, tx, id, a.UserID, in.Kind, body, now); err != nil {
+		if _, err := s.Store.InsertComment(ctx, tx, NewComment{RequestID: id, AuthorID: &a.UserID, ByAuthor: isAuthor, Kind: in.Kind, Body: body, At: now}); err != nil {
 			return err
 		}
 		from := r.Status
@@ -341,7 +351,7 @@ func (s *Service) AddComment(ctx context.Context, a authz.Actor, id int64, in Co
 		}
 		if r.Status != from {
 			to := r.Status
-			if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: id, ActorID: &a.UserID, Kind: EvStatusChanged, FromStatus: &from, ToStatus: &to, At: now}); err != nil {
+			if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: id, ActorID: &a.UserID, ByAuthor: isAuthor, Kind: EvStatusChanged, FromStatus: &from, ToStatus: &to, At: now}); err != nil {
 				return err
 			}
 		}
@@ -355,46 +365,72 @@ func (s *Service) AddComment(ctx context.Context, a authz.Actor, id int64, in Co
 		saved = r
 		// notification texts are rendered with the actor masked for each recipient (R2)
 		actorName := func(recipient int64) string {
-			return ActorView(&a.UserID, a.Name, a.Role, r.Author, recipientViewer(recipient)).Name
+			return ActorView(&a.UserID, isAuthor, a.Name, a.Role, r.Author, recipientViewer(recipient)).Name
 		}
 		short := excerpt(body, 300)
 		var ns []notifications.Note
 		switch {
-		case in.Kind == KindInternal:
-		case in.Kind == KindReport:
-			ns = notes([]int64{r.Author.ID}, notifications.KindReport, id,
-				fmt.Sprintf("%s: отчёт о ходе работ", r.Number), short)
-		case in.Kind == KindQuestion:
-			topic = eventbus.RequestQuestionAsked
-			ns = notes([]int64{r.Author.ID}, notifications.KindQuestion, id, fmt.Sprintf("%s: нужен ваш ответ", r.Number), short)
-		case in.Kind == KindAnswer || (in.Kind == KindComment && isAuthor && !staff):
+		case in.Kind == KindInternal && observer: // CR6: an observer's note goes to the owner
 			owners, err := s.ownerIDs(ctx, r.DepartmentID, r.AssigneeID)
 			if err != nil {
 				return err
 			}
-			kind, title := notifications.KindComment, "%s: новый комментарий от %s"
+			ns = notes(owners, notifications.KindComment, id, fmt.Sprintf("%s: внутренняя заметка от %s", r.Number, a.Name), short)
+		case in.Kind == KindInternal:
+		case in.Kind == KindReport:
+			ns = notes(authorRecipients(r.Row), notifications.KindReport, id,
+				fmt.Sprintf("%s: отчёт о ходе работ", r.Number), short)
+		case in.Kind == KindQuestion:
+			topic = eventbus.RequestQuestionAsked
+			ns = notes(authorRecipients(r.Row), notifications.KindQuestion, id, fmt.Sprintf("%s: нужен ваш ответ", r.Number), short)
+		case in.Kind == KindAnswer || (in.Kind == KindComment && isAuthor && !owner):
 			if in.Kind == KindAnswer {
 				topic = eventbus.RequestAnswered
-				kind, title = notifications.KindAnswer, "%s: ответ на уточнение от %s"
 			}
-			for _, o := range owners {
-				ns = append(ns, notifications.Note{UserID: o, Kind: kind, RequestID: id, Title: fmt.Sprintf(title, r.Number, actorName(o)), Body: short})
+			n, err := s.authorSideNotes(ctx, r.Row, in.Kind, actorName, short)
+			if err != nil {
+				return err
 			}
-		default: // staff comment -> author
-			ns = notes([]int64{r.Author.ID}, notifications.KindComment, id,
-				fmt.Sprintf("%s: новый комментарий от %s", r.Number, actorName(r.Author.ID)), short)
+			ns = n
+		case observer: // CR6: observer comment -> author (named only) and owner
+			owners, err := s.ownerIDs(ctx, r.DepartmentID, r.AssigneeID)
+			if err != nil {
+				return err
+			}
+			for _, rcp := range append(authorRecipients(r.Row), owners...) {
+				ns = append(ns, notifications.Note{UserID: rcp, Kind: notifications.KindComment, RequestID: id,
+					Title: fmt.Sprintf("%s: новый комментарий от %s", r.Number, actorName(rcp)), Body: short})
+			}
+		default: // owner comment -> author
+			for _, rcp := range authorRecipients(r.Row) {
+				ns = append(ns, notifications.Note{UserID: rcp, Kind: notifications.KindComment, RequestID: id,
+					Title: fmt.Sprintf("%s: новый комментарий от %s", r.Number, actorName(rcp)), Body: short})
+			}
 		}
 		return s.Notifier.Write(ctx, tx, a.UserID, ns)
 	})
 	if err != nil {
 		return Detail{}, err
 	}
-	data := map[string]any{"kind": in.Kind}
-	if saved.Author.ID != a.UserID || !saved.Author.IsAnonymous {
-		data["actor_id"] = a.UserID
-	}
-	s.publish(ctx, topic, saved.Row, data)
+	s.publish(ctx, topic, saved.Row, map[string]any{"kind": in.Kind, "actor_id": a.UserID})
 	return s.reload(ctx, a, id)
+}
+
+// authorSideNotes notifies the request's owners about an author comment/answer.
+func (s *Service) authorSideNotes(ctx context.Context, r Row, kind string, actorName func(int64) string, short string) ([]notifications.Note, error) {
+	owners, err := s.ownerIDs(ctx, r.DepartmentID, r.AssigneeID)
+	if err != nil {
+		return nil, err
+	}
+	nk, title := notifications.KindComment, "%s: новый комментарий от %s"
+	if kind == KindAnswer {
+		nk, title = notifications.KindAnswer, "%s: ответ на уточнение от %s"
+	}
+	out := make([]notifications.Note, 0, len(owners))
+	for _, o := range owners {
+		out = append(out, notifications.Note{UserID: o, Kind: nk, RequestID: r.ID, Title: fmt.Sprintf(title, r.Number, actorName(o)), Body: short})
+	}
+	return out, nil
 }
 
 // ThemeInput is the POST /requests/{id}/theme body.

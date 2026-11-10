@@ -26,4 +26,4 @@ func New(d Deps, loc *time.Location) *Module {
 
 func (m *Module) Name() string { return "requests" }
 
-func (m *Module) Routes(_, priv chi.Router) { mountRoutes(m.h, priv) }
+func (m *Module) Routes(pub, priv chi.Router) { mountRoutes(m.h, pub, priv) }

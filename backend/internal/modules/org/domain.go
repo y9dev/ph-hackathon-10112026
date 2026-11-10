@@ -92,6 +92,6 @@ func (in CategoryInput) apply(c *Category, create bool) error {
 }
 
 // ValidRequestType reports whether t is a known request type.
-func ValidRequestType(t string) bool { return t == "problem" || t == "idea" }
+func ValidRequestType(t string) bool { return t == "problem" || t == "idea" || t == "feedback" }
 
 const maxSLAHours = 8760

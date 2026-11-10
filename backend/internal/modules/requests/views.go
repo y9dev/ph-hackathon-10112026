@@ -25,6 +25,8 @@ type Summary struct {
 	Department     *Ref       `json:"department"`
 	Assignee       *Ref       `json:"assignee"`
 	RoutingSource  string     `json:"routing_source"`
+	Priority       string     `json:"priority"`
+	AccessLevel    string     `json:"access_level"`
 	SLA            SLAState   `json:"sla"`
 	CommentsCount  int        `json:"comments_count"`
 	AwaitingAuthor bool       `json:"awaiting_author"`
@@ -82,6 +84,8 @@ type ThemeRef struct {
 // Detail is the contract RequestDetail.
 type Detail struct {
 	Summary
+	// AnonymousToken is set ONLY in the 201 response of an anonymous POST /requests (shown once).
+	AnonymousToken      *string          `json:"anonymous_token,omitempty"`
 	Body                string           `json:"body"`
 	ProposedSolution    *string          `json:"proposed_solution"`
 	ResultText          *string          `json:"result_text"`
@@ -115,31 +119,57 @@ func refOf(id *int64, name *string) *Ref {
 	return &Ref{ID: *id, Name: n}
 }
 
-// canManage reports whether viewer has staff powers over r.
+// canManage reports whether viewer OWNS r (full staff powers): admin, or manager heading the
+// request's department or assigned to it.
 func canManage(viewer authz.Actor, r Row) bool { return viewer.CanManage(r.DepartmentID, r.AssigneeID) }
 
-// canRead: author, or staff in scope.
+// isObserver: a manager who can read r (CR6: managers read every request) but does not own it.
+func isObserver(viewer authz.Actor, r Row) bool {
+	return viewer.Role == authz.RoleManager && !canManage(viewer, r) && !isAuthorOf(viewer, r.Author)
+}
+
+// canRead: the named author, or any staff member (CR6: managers read all requests, admin all).
+// Anonymous requests have no author link; their author reads them only via the token endpoints.
 func canRead(viewer authz.Actor, r Row) bool {
-	return r.Author.ID == viewer.UserID || canManage(viewer, r)
+	return isAuthorOf(viewer, r.Author) || viewer.IsStaff()
+}
+
+// seesInternal: staff who are not the author see internal notes (owners and observers).
+func seesInternal(viewer authz.Actor, r Row) bool {
+	return viewer.IsStaff() && !isAuthorOf(viewer, r.Author)
+}
+
+// accessLevel is the contract AccessLevel of viewer for r.
+func accessLevel(viewer authz.Actor, r Row) string {
+	switch {
+	case isAuthorOf(viewer, r.Author):
+		return AccessAuthor
+	case canManage(viewer, r):
+		return AccessOwner
+	case viewer.Role == authz.RoleManager:
+		return AccessObserver
+	}
+	return AccessAuthor // unreachable for authorized reads
 }
 
 // toSummary maps a row for viewer; author identity passes through AuthorView.
 func toSummary(r Row, viewer authz.Actor, now time.Time) Summary {
 	cc := r.CommentsPublic
-	if canManage(viewer, r) && r.Author.ID != viewer.UserID {
+	if seesInternal(viewer, r) {
 		cc = r.CommentsAll
 	}
 	return Summary{
 		ID: r.ID, Number: r.Number, Type: r.Type, Category: Ref{ID: r.CategoryID, Name: r.CategoryName}, Title: r.Title,
 		Status: r.Status, Author: AuthorView(r.Author, viewer), Department: refOf(r.DepartmentID, r.DepartmentName),
-		Assignee: refOf(r.AssigneeID, r.AssigneeName), RoutingSource: r.RoutingSource, SLA: ComputeSLA(r.SLAInput(), now),
+		Assignee: refOf(r.AssigneeID, r.AssigneeName), RoutingSource: r.RoutingSource, Priority: r.Priority,
+		AccessLevel: accessLevel(viewer, r), SLA: ComputeSLA(r.SLAInput(), now),
 		CommentsCount: cc, AwaitingAuthor: r.Status == StatusNeedsInfo, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, ClosedAt: r.ClosedAt,
 	}
 }
 
 // buildTimeline merges events and comments; internal notes only for staff who are not the author.
 func buildTimeline(r Row, events []EventRow, comments []CommentRow, viewer authz.Actor) []TimelineItem {
-	showInternal := canManage(viewer, r) && r.Author.ID != viewer.UserID
+	showInternal := seesInternal(viewer, r)
 	out := make([]TimelineItem, 0, len(events)+len(comments))
 	for _, e := range events {
 		kind := e.Kind
@@ -151,16 +181,20 @@ func buildTimeline(r Row, events []EventRow, comments []CommentRow, viewer authz
 			continue
 		}
 		out = append(out, TimelineItem{ID: "e-" + strconv.FormatInt(e.ID, 10), At: e.At, Kind: kind,
-			Actor: ActorView(e.ActorID, e.ActorName, e.ActorRole, r.Author, viewer), FromStatus: e.FromStatus, ToStatus: e.ToStatus, Text: e.Text})
+			Actor: ActorView(e.ActorID, e.ByAuthor, e.ActorName, e.ActorRole, r.Author, viewer), FromStatus: e.FromStatus, ToStatus: e.ToStatus, Text: e.Text})
 	}
 	for _, c := range comments {
 		if c.Kind == KindInternal && !showInternal {
 			continue
 		}
 		body := c.Body
-		id := c.AuthorID
+		var id *int64
+		if c.AuthorID != 0 {
+			v := c.AuthorID
+			id = &v
+		}
 		out = append(out, TimelineItem{ID: "c-" + strconv.FormatInt(c.ID, 10), At: c.CreatedAt, Kind: c.Kind,
-			Actor: ActorView(&id, c.Name, c.Role, r.Author, viewer), Text: &body})
+			Actor: ActorView(id, c.ByAuthor, c.Name, c.Role, r.Author, viewer), Text: &body})
 	}
 	// stable merge by time; events before comments at the same second keeps status changes readable
 	sortTimeline(out)
@@ -176,12 +210,16 @@ func sortTimeline(items []TimelineItem) {
 	}
 }
 
-// allowedFor computes the actions viewer may perform now.
+// allowedFor computes the actions viewer may perform now. Observers (CR6) may only add
+// comments and internal notes; owners have full staff powers; authors comment/answer.
 func allowedFor(r Row, viewer authz.Actor) (statuses []Status, kinds []string, canAssign bool) {
 	staff := canManage(viewer, r)
-	isAuthor := r.Author.ID == viewer.UserID
+	isAuthor := isAuthorOf(viewer, r.Author)
 	statuses = []Status{}
 	kinds = []string{}
+	if isObserver(viewer, r) {
+		return statuses, []string{KindComment, KindInternal}, false
+	}
 	if staff {
 		statuses = AllowedTransitions(r.Status)
 		canAssign = !r.Status.Terminal()

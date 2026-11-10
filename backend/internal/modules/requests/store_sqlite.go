@@ -20,7 +20,7 @@ const terminalSQL = `('implemented','declined','duplicate','closed')`
 // overdueSQL mirrors OverdueKindAt; it takes two ? (now, now).
 const overdueSQL = `(r.status IN ('new','in_review','decision','in_progress') AND ((r.first_responded_at IS NULL AND r.first_response_due < ?) OR r.resolution_due < ?))`
 
-const rowCols = `r.id, r.number, r.type, r.category_id, c.name, r.title, r.status, r.author_id, au.name, r.is_anonymous,
+const rowCols = `r.id, r.number, r.type, r.priority, r.category_id, c.name, r.title, r.status, IFNULL(r.author_id, 0), IFNULL(au.name, ''), r.is_anonymous,
 	r.department_id, d.name, r.assignee_id, asg.name, r.routing_source, r.first_response_due, r.resolution_due,
 	r.first_responded_at, r.paused_at, r.closed_at, r.created_at, r.updated_at,
 	(SELECT COUNT(*) FROM comments cm WHERE cm.request_id = r.id),
@@ -28,7 +28,7 @@ const rowCols = `r.id, r.number, r.type, r.category_id, c.name, r.title, r.statu
 
 const rowFrom = ` FROM requests r
 	JOIN categories c ON c.id = r.category_id
-	JOIN users au ON au.id = r.author_id
+	LEFT JOIN users au ON au.id = r.author_id
 	LEFT JOIN departments d ON d.id = r.department_id
 	LEFT JOIN users asg ON asg.id = r.assignee_id`
 
@@ -41,7 +41,7 @@ func scanRow(sc scanner, extra ...any) (Row, error) {
 	var dept, asg, fra, paused, closed sql.NullInt64
 	var deptName, asgName sql.NullString
 	var frd, rd, created, updated int64
-	dest := []any{&r.ID, &r.Number, &r.Type, &r.CategoryID, &r.CategoryName, &r.Title, &status, &r.Author.ID, &r.Author.Name, &anon,
+	dest := []any{&r.ID, &r.Number, &r.Type, &r.Priority, &r.CategoryID, &r.CategoryName, &r.Title, &status, &r.Author.ID, &r.Author.Name, &anon,
 		&dept, &deptName, &asg, &asgName, &r.RoutingSource, &frd, &rd, &fra, &paused, &closed, &created, &updated,
 		&r.CommentsAll, &r.CommentsPublic}
 	if err := sc.Scan(append(dest, extra...)...); err != nil {
@@ -73,10 +73,10 @@ func b2i(b bool) int {
 }
 
 func (s *SQLiteStore) InsertRequest(ctx context.Context, q db.Querier, r NewRequest) (int64, error) {
-	res, err := q.ExecContext(ctx, `INSERT INTO requests(number, type, category_id, title, body, proposed_solution, author_id, is_anonymous,
-		department_id, assignee_id, status, routing_source, first_response_due, resolution_due, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?)`,
-		r.Number, r.Type, r.CategoryID, r.Title, r.Body, r.ProposedSolution, r.AuthorID, b2i(r.IsAnonymous),
+	res, err := q.ExecContext(ctx, `INSERT INTO requests(number, type, priority, category_id, title, body, proposed_solution, author_id, is_anonymous,
+		anon_token_hash, department_id, assignee_id, status, routing_source, first_response_due, resolution_due, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?)`,
+		r.Number, r.Type, r.Priority, r.CategoryID, r.Title, r.Body, r.ProposedSolution, db.IntOrNil(r.AuthorID), b2i(r.IsAnonymous), r.AnonTokenHash,
 		db.IntOrNil(r.DepartmentID), db.IntOrNil(r.AssigneeID), r.RoutingSource, db.Unix(r.FirstResponseDue), db.Unix(r.ResolutionDue),
 		db.Unix(r.CreatedAt), db.Unix(r.CreatedAt))
 	if err != nil {
@@ -93,50 +93,71 @@ func statusPtr(s *Status) any {
 }
 
 func (s *SQLiteStore) InsertEvent(ctx context.Context, q db.Querier, e Event) error {
-	_, err := q.ExecContext(ctx, `INSERT INTO request_events(request_id, actor_id, kind, from_status, to_status, text, meta, created_at) VALUES (?,?,?,?,?,?,?,?)`,
-		e.RequestID, db.IntOrNil(e.ActorID), e.Kind, statusPtr(e.FromStatus), statusPtr(e.ToStatus), e.Text, e.Meta, db.Unix(e.At))
+	_, err := q.ExecContext(ctx, `INSERT INTO request_events(request_id, actor_id, by_author, kind, from_status, to_status, text, meta, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+		e.RequestID, db.IntOrNil(e.ActorID), b2i(e.ByAuthor), e.Kind, statusPtr(e.FromStatus), statusPtr(e.ToStatus), e.Text, e.Meta, db.Unix(e.At))
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLiteStore) InsertComment(ctx context.Context, q db.Querier, requestID, authorID int64, kind, body string, at time.Time) (int64, error) {
-	res, err := q.ExecContext(ctx, `INSERT INTO comments(request_id, author_id, kind, body, created_at) VALUES (?,?,?,?,?)`,
-		requestID, authorID, kind, body, db.Unix(at))
+func (s *SQLiteStore) InsertComment(ctx context.Context, q db.Querier, c NewComment) (int64, error) {
+	res, err := q.ExecContext(ctx, `INSERT INTO comments(request_id, author_id, by_author, kind, body, created_at) VALUES (?,?,?,?,?,?)`,
+		c.RequestID, db.IntOrNil(c.AuthorID), b2i(c.ByAuthor), c.Kind, c.Body, db.Unix(c.At))
 	if err != nil {
 		return 0, fmt.Errorf("insert comment: %w", err)
 	}
 	return res.LastInsertId()
 }
 
-func (s *SQLiteStore) InsertAttachment(ctx context.Context, q db.Querier, requestID, uploadedBy int64, f storedFile, at time.Time) error {
+func (s *SQLiteStore) InsertAttachment(ctx context.Context, q db.Querier, requestID int64, uploadedBy *int64, f storedFile, at time.Time) error {
 	_, err := q.ExecContext(ctx, `INSERT INTO attachments(request_id, filename, stored_name, mime, size, uploaded_by, created_at) VALUES (?,?,?,?,?,?,?)`,
-		requestID, f.Filename, f.StoredName, f.MIME, f.Size, uploadedBy, db.Unix(at))
+		requestID, f.Filename, f.StoredName, f.MIME, f.Size, db.IntOrNil(uploadedBy), db.Unix(at))
 	if err != nil {
 		return fmt.Errorf("insert attachment: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLiteStore) Get(ctx context.Context, q db.Querier, id int64) (DetailRow, error) {
+const detailSelect = `SELECT ` + rowCols + `, r.body, r.proposed_solution, r.result_text, r.duplicate_of, dr.number, r.theme_id, t.title, IFNULL(r.anon_token_hash, '')` +
+	rowFrom + ` LEFT JOIN requests dr ON dr.id = r.duplicate_of LEFT JOIN themes t ON t.id = r.theme_id`
+
+func scanDetail(sc scanner) (DetailRow, string, error) {
 	var d DetailRow
 	var prop, result, dupNum, themeTitle sql.NullString
 	var dup, theme sql.NullInt64
-	row, err := scanRow(q.QueryRowContext(ctx, `SELECT `+rowCols+`, r.body, r.proposed_solution, r.result_text, r.duplicate_of, dr.number, r.theme_id, t.title`+
-		rowFrom+` LEFT JOIN requests dr ON dr.id = r.duplicate_of LEFT JOIN themes t ON t.id = r.theme_id WHERE r.id = ?`, id),
-		&d.Body, &prop, &result, &dup, &dupNum, &theme, &themeTitle)
+	var hash string
+	row, err := scanRow(sc, &d.Body, &prop, &result, &dup, &dupNum, &theme, &themeTitle, &hash)
+	if err != nil {
+		return DetailRow{}, "", err
+	}
+	d.Row = row
+	d.ProposedSolution, d.ResultText = db.NullStr(prop), db.NullStr(result)
+	d.DuplicateOfID, d.DuplicateOfNumber = db.NullInt(dup), db.NullStr(dupNum)
+	d.ThemeID, d.ThemeTitle = db.NullInt(theme), db.NullStr(themeTitle)
+	return d, hash, nil
+}
+
+func (s *SQLiteStore) Get(ctx context.Context, q db.Querier, id int64) (DetailRow, error) {
+	d, _, err := scanDetail(q.QueryRowContext(ctx, detailSelect+` WHERE r.id = ?`, id))
 	if db.IsNoRows(err) {
 		return DetailRow{}, ErrNotFound
 	}
 	if err != nil {
 		return DetailRow{}, fmt.Errorf("get request: %w", err)
 	}
-	d.Row = row
-	d.ProposedSolution, d.ResultText = db.NullStr(prop), db.NullStr(result)
-	d.DuplicateOfID, d.DuplicateOfNumber = db.NullInt(dup), db.NullStr(dupNum)
-	d.ThemeID, d.ThemeTitle = db.NullInt(theme), db.NullStr(themeTitle)
 	return d, nil
+}
+
+func (s *SQLiteStore) ByTokenHash(ctx context.Context, q db.Querier, hash string) (DetailRow, string, error) {
+	d, stored, err := scanDetail(q.QueryRowContext(ctx, detailSelect+` WHERE r.anon_token_hash = ? AND r.is_anonymous = 1`, hash))
+	if db.IsNoRows(err) {
+		return DetailRow{}, "", ErrNotFound
+	}
+	if err != nil {
+		return DetailRow{}, "", fmt.Errorf("get request by token: %w", err)
+	}
+	return d, stored, nil
 }
 
 func (s *SQLiteStore) Save(ctx context.Context, q db.Querier, r DetailRow) error {
@@ -194,6 +215,14 @@ func where(f ListFilter, includeTabStatus bool) (string, []any) {
 	if f.AssigneeNone {
 		conds = append(conds, "r.assignee_id IS NULL")
 	}
+	if f.Priority != "" {
+		conds = append(conds, "r.priority = ?")
+		args = append(args, f.Priority)
+	}
+	if f.RequestType != "" {
+		conds = append(conds, "r.type = ?")
+		args = append(args, f.RequestType)
+	}
 	if f.Overdue != nil {
 		if *f.Overdue {
 			conds = append(conds, overdueSQL)
@@ -226,12 +255,17 @@ func orderBy(sort string) string {
 		return " ORDER BY r.created_at ASC, r.id ASC"
 	case "updated":
 		return " ORDER BY r.updated_at DESC, r.id DESC"
+	case "priority":
+		// high first; within a priority the deadline order below
+		return ` ORDER BY CASE r.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, ` + deadlineOrder
 	}
-	// deadline: open by nearest effective deadline (overdue first), waiting-for-author next, closed last (newest closed first)
-	return ` ORDER BY CASE WHEN r.status IN ` + terminalSQL + ` THEN 2 WHEN r.status = 'needs_info' THEN 1 ELSE 0 END,
+	return " ORDER BY " + deadlineOrder
+}
+
+// deadlineOrder: open by nearest effective deadline (overdue first), waiting-for-author next, closed last (newest closed first).
+const deadlineOrder = `CASE WHEN r.status IN ` + terminalSQL + ` THEN 2 WHEN r.status = 'needs_info' THEN 1 ELSE 0 END,
 		CASE WHEN r.status IN ` + terminalSQL + ` THEN -IFNULL(r.closed_at, r.updated_at)
 		     WHEN r.first_responded_at IS NULL THEN r.first_response_due ELSE r.resolution_due END ASC, r.id DESC`
-}
 
 func (s *SQLiteStore) List(ctx context.Context, f ListFilter) ([]Row, int, error) {
 	w, args := where(f, true)
@@ -281,7 +315,7 @@ func (s *SQLiteStore) Counts(ctx context.Context, f ListFilter) (Counts, error) 
 }
 
 func (s *SQLiteStore) Events(ctx context.Context, requestID int64) ([]EventRow, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT e.id, e.request_id, e.actor_id, IFNULL(u.name,''), IFNULL(u.role,''), e.kind, e.from_status, e.to_status, e.text, e.meta, e.created_at
+	rows, err := s.DB.QueryContext(ctx, `SELECT e.id, e.request_id, e.actor_id, e.by_author, IFNULL(u.name,''), IFNULL(u.role,''), e.kind, e.from_status, e.to_status, e.text, e.meta, e.created_at
 		FROM request_events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.request_id = ? ORDER BY e.created_at, e.id`, requestID)
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
@@ -291,13 +325,15 @@ func (s *SQLiteStore) Events(ctx context.Context, requestID int64) ([]EventRow, 
 	for rows.Next() {
 		var e EventRow
 		var actor sql.NullInt64
+		var byAuthor int
 		var role string
 		var from, to, text, meta sql.NullString
 		var at int64
-		if err := rows.Scan(&e.ID, &e.RequestID, &actor, &e.ActorName, &role, &e.Kind, &from, &to, &text, &meta, &at); err != nil {
+		if err := rows.Scan(&e.ID, &e.RequestID, &actor, &byAuthor, &e.ActorName, &role, &e.Kind, &from, &to, &text, &meta, &at); err != nil {
 			return nil, err
 		}
 		e.ActorID = db.NullInt(actor)
+		e.ByAuthor = byAuthor == 1
 		e.ActorRole = authz.Role(role)
 		if from.Valid {
 			st := Status(from.String)
@@ -315,8 +351,8 @@ func (s *SQLiteStore) Events(ctx context.Context, requestID int64) ([]EventRow, 
 }
 
 func (s *SQLiteStore) Comments(ctx context.Context, requestID int64) ([]CommentRow, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT c.id, c.author_id, u.name, u.role, c.kind, c.body, c.created_at
-		FROM comments c JOIN users u ON u.id = c.author_id WHERE c.request_id = ? ORDER BY c.created_at, c.id`, requestID)
+	rows, err := s.DB.QueryContext(ctx, `SELECT c.id, IFNULL(c.author_id, 0), c.by_author, IFNULL(u.name, ''), IFNULL(u.role, ''), c.kind, c.body, c.created_at
+		FROM comments c LEFT JOIN users u ON u.id = c.author_id WHERE c.request_id = ? ORDER BY c.created_at, c.id`, requestID)
 	if err != nil {
 		return nil, fmt.Errorf("query comments: %w", err)
 	}
@@ -325,10 +361,12 @@ func (s *SQLiteStore) Comments(ctx context.Context, requestID int64) ([]CommentR
 	for rows.Next() {
 		var c CommentRow
 		var role string
+		var byAuthor int
 		var at int64
-		if err := rows.Scan(&c.ID, &c.AuthorID, &c.Name, &role, &c.Kind, &c.Body, &at); err != nil {
+		if err := rows.Scan(&c.ID, &c.AuthorID, &byAuthor, &c.Name, &role, &c.Kind, &c.Body, &at); err != nil {
 			return nil, err
 		}
+		c.ByAuthor = byAuthor == 1
 		c.Role = authz.Role(role)
 		c.CreatedAt = db.Time(at)
 		out = append(out, c)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -59,9 +60,12 @@ func (h *handler) preview(w http.ResponseWriter, r *http.Request) {
 func parseListQuery(r *http.Request) (ListQuery, error) {
 	qs := r.URL.Query()
 	q := ListQuery{Scope: qs.Get("scope"), Tab: qs.Get("tab"), Status: qs.Get("status"), Assignee: qs.Get("assignee"),
-		Q: qs.Get("q"), Sort: qs.Get("sort")}
+		Q: qs.Get("q"), Sort: qs.Get("sort"), Priority: qs.Get("priority"), RequestType: qs.Get("request_type")}
 	var err error
 	if q.CategoryID, err = httpx.QueryInt(r, "category_id"); err != nil {
+		return q, err
+	}
+	if q.MineScope, err = httpx.QueryBool(r, "mine_scope"); err != nil {
 		return q, err
 	}
 	if q.DepartmentID, err = httpx.QueryInt(r, "department_id"); err != nil {
@@ -275,6 +279,10 @@ func (h *handler) attachment(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	h.serveFile(w, r, at)
+}
+
+func (h *handler) serveFile(w http.ResponseWriter, r *http.Request, at AttachmentRow) {
 	f, err := os.Open(filepath.Join(h.svc.UploadDir, at.StoredName))
 	if err != nil {
 		httpx.Error(w, r, apperr.NotFound())
@@ -294,7 +302,71 @@ func (h *handler) attachment(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, "", time.Time{}, f)
 }
 
-func mountRoutes(h *handler, priv chi.Router) {
+// clientIP uses the identity module's proxy-aware resolver when available (TRUSTED_PROXY), else the TCP peer.
+func (h *handler) clientIP(r *http.Request) string {
+	if p, ok := h.svc.People.(interface{ ClientIP(*http.Request) string }); ok {
+		return p.ClientIP(r)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// --- anonymous author endpoints (CR2): no session, token in the body / X-Anonymous-Token ---
+
+func (h *handler) anonLookup(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Token string `json:"token"`
+	}
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	d, err := h.svc.AnonymousLookup(r.Context(), h.clientIP(r), in.Token)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, d)
+}
+
+func (h *handler) anonComment(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Token string `json:"token"`
+		Body  string `json:"body"`
+	}
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	d, err := h.svc.AnonymousComment(r.Context(), h.clientIP(r), in.Token, in.Body)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, d)
+}
+
+func (h *handler) anonAttachment(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.IDParam(r, "id")
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	at, err := h.svc.AnonymousAttachment(r.Context(), h.clientIP(r), r.Header.Get("X-Anonymous-Token"), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	h.serveFile(w, r, at)
+}
+
+func mountRoutes(h *handler, pub, priv chi.Router) {
+	pub.Post("/anonymous/lookup", h.anonLookup)
+	pub.Post("/anonymous/comments", h.anonComment)
+	pub.Get("/anonymous/attachments/{id}", h.anonAttachment)
 	priv.Get("/meta", h.meta)
 	priv.Get("/routing/preview", h.preview)
 	priv.Get("/requests", h.list)

@@ -67,14 +67,50 @@ func CanTransition(from, to Status) bool { return slices.Contains(transitions[fr
 // AllowedTransitions lists statuses reachable from s.
 func AllowedTransitions(s Status) []Status { return append([]Status{}, transitions[s]...) }
 
-// Request types.
+// Request types (CR1: feedback = Положительный отзыв).
 const (
-	TypeProblem = "problem"
-	TypeIdea    = "idea"
+	TypeProblem  = "problem"
+	TypeIdea     = "idea"
+	TypeFeedback = "feedback"
 )
 
+// AllTypes in display order.
+var AllTypes = []string{TypeProblem, TypeIdea, TypeFeedback}
+
+var typeLabels = map[string]string{TypeProblem: "Проблема", TypeIdea: "Предложение", TypeFeedback: "Положительный отзыв"}
+
+// TypeLabel returns the Russian label of a request type.
+func TypeLabel(t string) string { return typeLabels[t] }
+
 // ValidType reports whether t is a known request type.
-func ValidType(t string) bool { return t == TypeProblem || t == TypeIdea }
+func ValidType(t string) bool { _, ok := typeLabels[t]; return ok }
+
+const errTypeMsg = "Выберите тип: проблема, предложение или положительный отзыв"
+
+// Priorities (CR1).
+const (
+	PriorityLow    = "low"
+	PriorityMedium = "medium"
+	PriorityHigh   = "high"
+)
+
+// AllPriorities in display order (lowest first).
+var AllPriorities = []string{PriorityLow, PriorityMedium, PriorityHigh}
+
+var priorityLabels = map[string]string{PriorityLow: "Низкий", PriorityMedium: "Средний", PriorityHigh: "Высокий"}
+
+// PriorityLabel returns the Russian label of a priority.
+func PriorityLabel(p string) string { return priorityLabels[p] }
+
+// ValidPriority reports whether p is a known priority.
+func ValidPriority(p string) bool { _, ok := priorityLabels[p]; return ok }
+
+// Access levels of the viewer to one request (CR6).
+const (
+	AccessOwner    = "owner"    // admin, or manager owning the request's department / assigned to it
+	AccessObserver = "observer" // manager of another department: read + comment/internal only
+	AccessAuthor   = "author"   // the author (named, or anonymous via token)
+)
 
 // Comment kinds.
 const (
@@ -138,20 +174,28 @@ type CreateInput struct {
 	Body             string `json:"body"`
 	ProposedSolution string `json:"proposed_solution"`
 	IsAnonymous      bool   `json:"is_anonymous"`
+	Priority         string `json:"priority"`
 }
 
-// Normalize trims text fields.
+// Normalize trims text fields and applies the default priority.
 func (in *CreateInput) Normalize() {
 	in.Title = strings.TrimSpace(in.Title)
 	in.Body = strings.TrimSpace(in.Body)
 	in.ProposedSolution = strings.TrimSpace(in.ProposedSolution)
+	in.Priority = strings.TrimSpace(in.Priority)
+	if in.Priority == "" {
+		in.Priority = PriorityMedium
+	}
 }
 
 // Validate checks field limits (category existence is checked by the service).
 func (in CreateInput) Validate() error {
 	var v apperr.V
 	if !ValidType(in.Type) {
-		v.Add("type", "Выберите тип: проблема или предложение")
+		v.Add("type", errTypeMsg)
+	}
+	if in.Priority != "" && !ValidPriority(in.Priority) { // "" = default (medium), set by Normalize
+		v.Add("priority", "Приоритет: low, medium или high")
 	}
 	if in.CategoryID <= 0 {
 		v.Add("category_id", "Выберите категорию")

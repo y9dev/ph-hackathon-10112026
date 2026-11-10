@@ -47,9 +47,19 @@ const (
 	groupMaxDocs    = 600
 )
 
+// staffScope is the OWNER scope (suggested groups: actionable, a theme can only be linked by owners).
 func staffScope(a authz.Actor) Scope {
 	sql, args := authz.ScopeSQL(a, "r.department_id", "r.assignee_id")
 	return Scope{SQL: sql, Args: args}
+}
+
+// readScope is what staff may READ: CR6 lets managers (and admins) see every request, so
+// analytics and themes are company-wide; the department_id filter narrows them.
+func readScope(a authz.Actor) Scope {
+	if a.IsStaff() {
+		return Scope{SQL: "1=1"}
+	}
+	return Scope{SQL: "0=1"}
 }
 
 // FindSimilar implements requests.SimilarFinder: all requests scoring >= Threshold, best first.
@@ -203,7 +213,7 @@ func (s *Service) Themes(ctx context.Context, a authz.Actor) ([]ThemeView, error
 	if err := authz.RequireStaff(a); err != nil {
 		return nil, err
 	}
-	rows, err := s.store.ThemeRows(ctx, staffScope(a))
+	rows, err := s.store.ThemeRows(ctx, readScope(a))
 	if err != nil {
 		return nil, err
 	}
@@ -243,12 +253,14 @@ type SummaryFilter struct {
 	DepartmentID *int64
 }
 
-// KPIs are the TZ metrics.
+// KPIs are the TZ metrics (CR5: p90 removed; on-time share and resolution time added).
 type KPIs struct {
 	Total                    int      `json:"total"`
 	ReviewedShare            float64  `json:"reviewed_share"`
 	MedianFirstResponseHours *float64 `json:"median_first_response_hours"`
-	P90FirstResponseHours    *float64 `json:"p90_first_response_hours"`
+	FirstResponseOnTimeShare *float64 `json:"first_response_on_time_share"`
+	FirstResponseSample      int      `json:"first_response_sample"`
+	MedianResolutionHours    *float64 `json:"median_resolution_hours"`
 	OutcomeShare             float64  `json:"outcome_share"`
 	ImplementedCount         int      `json:"implemented_count"`
 	OverdueCount             int      `json:"overdue_count"`
@@ -306,6 +318,51 @@ func percentile(sorted []float64, p float64) float64 {
 
 func round1(x float64) float64 { return math.Round(x*10) / 10 }
 
+// median returns the rounded median of xs (nil when empty). xs is sorted in place.
+func median(xs []float64) *float64 {
+	if len(xs) == 0 {
+		return nil
+	}
+	sort.Float64s(xs)
+	m := round1(percentile(xs, 0.5))
+	return &m
+}
+
+// FirstResponseAndResolution returns, in hours, created->first response for requests with a
+// first response and created->closed for closed requests among facts.
+func FirstResponseAndResolution(facts []Fact) (first, resolution []float64) {
+	for _, x := range facts {
+		if x.FirstRespondedAt != nil {
+			first = append(first, x.FirstRespondedAt.Sub(x.CreatedAt).Hours())
+		}
+		if x.ClosedAt != nil && requests.Status(x.Status).Terminal() {
+			resolution = append(resolution, x.ClosedAt.Sub(x.CreatedAt).Hours())
+		}
+	}
+	return first, resolution
+}
+
+// OnTimeShare (CR5) is the share of requests answered no later than their first-response deadline
+// among requests that have a first response. The stored deadline already includes needs_info
+// pause shifts. nil when nothing was answered yet.
+func OnTimeShare(facts []Fact) *float64 {
+	answered, onTime := 0, 0
+	for _, x := range facts {
+		if x.FirstRespondedAt == nil {
+			continue
+		}
+		answered++
+		if !x.FirstRespondedAt.After(x.FirstResponseDue) {
+			onTime++
+		}
+	}
+	if answered == 0 {
+		return nil
+	}
+	v := share(onTime, answered)
+	return &v
+}
+
 func share(n, d int) float64 {
 	if d == 0 {
 		return 0
@@ -318,7 +375,7 @@ func (s *Service) dayStart(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, s.loc)
 }
 
-// Summary computes role-scoped KPIs: manager = own scope, admin = all.
+// Summary computes KPIs company-wide for staff (CR6: managers and admins), optionally for one department.
 func (s *Service) Summary(ctx context.Context, a authz.Actor, f SummaryFilter) (Summary, error) {
 	if err := authz.RequireStaff(a); err != nil {
 		return Summary{}, err
@@ -326,7 +383,7 @@ func (s *Service) Summary(ctx context.Context, a authz.Actor, f SummaryFilter) (
 	if f.From != nil && f.To != nil && f.To.Before(*f.From) {
 		return Summary{}, apperr.Invalid("to", "Дата окончания раньше даты начала")
 	}
-	scope := staffScope(a)
+	scope := readScope(a)
 	now := s.now()
 	var toExcl *time.Time
 	if f.To != nil {
@@ -345,7 +402,7 @@ func (s *Service) Summary(ctx context.Context, a authz.Actor, f SummaryFilter) (
 	cats := map[string]*CategoryStat{}
 	depts := map[string]*DepartmentStat{}
 	var catOrder, deptOrder []string
-	var frHours []float64
+	frHours, resHours := FirstResponseAndResolution(facts)
 	reviewed, closed, withResult, auto := 0, 0, 0, 0
 	for _, x := range facts {
 		st := requests.Status(x.Status)
@@ -355,7 +412,6 @@ func (s *Service) Summary(ctx context.Context, a authz.Actor, f SummaryFilter) (
 			ResolutionDue: x.ResolutionDue, FirstRespondedAt: x.FirstRespondedAt}, now) != ""
 		if x.FirstRespondedAt != nil {
 			reviewed++
-			frHours = append(frHours, x.FirstRespondedAt.Sub(x.CreatedAt).Hours())
 		}
 		if st.Terminal() {
 			closed++
@@ -408,11 +464,10 @@ func (s *Service) Summary(ctx context.Context, a authz.Actor, f SummaryFilter) (
 	k.ReviewedShare = share(reviewed, k.Total)
 	k.OutcomeShare = share(withResult, closed)
 	k.AutoRoutedShare = share(auto, k.Total)
-	if len(frHours) > 0 {
-		sort.Float64s(frHours)
-		med, p90 := round1(percentile(frHours, 0.5)), round1(percentile(frHours, 0.9))
-		k.MedianFirstResponseHours, k.P90FirstResponseHours = &med, &p90
-	}
+	k.FirstResponseSample = len(frHours)
+	k.MedianFirstResponseHours = median(frHours)
+	k.MedianResolutionHours = median(resHours)
+	k.FirstResponseOnTimeShare = OnTimeShare(facts)
 	for _, st := range requests.AllStatuses {
 		res.ByStatus = append(res.ByStatus, StatusCount{Status: st, Count: statusCount[st]})
 	}

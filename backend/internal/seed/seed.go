@@ -1,6 +1,8 @@
-// Package seed loads deterministic synthetic demo data: 7 departments, 21 users, 9 categories,
-// routing rules (none for "Другое"), ~70 requests over the last 90 days with full timelines,
-// 4 deliberate similarity clusters, one confirmed theme and notifications.
+// Package seed loads the deterministic demo data set of CR1: exactly the 20 requests A-001…A-020
+// of docs/DATASET.md (MV-0001 = A-001 … MV-0020 = A-020) with the dataset's categories, conditional
+// roles as users, routing rules derived from the conditional responsibles, and added test dates
+// (created over ~60 days, first responses, a few overdue requests). A-005, A-017 and A-018 are
+// anonymous (CR2): no author link is stored; they are reachable with the demo tokens.
 package seed
 
 import (
@@ -8,10 +10,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math/rand/v2"
-	"sort"
+	"log/slog"
+	"strings"
 	"time"
 
+	"modusvoice/internal/modules/requests"
 	"modusvoice/internal/platform/db"
 )
 
@@ -22,19 +25,14 @@ var ErrAlreadySeeded = errors.New("seed: database is not empty")
 const Domain = "@modus.demo"
 
 type seeder struct {
-	ctx      context.Context
-	tx       *sql.Tx
-	now      time.Time
-	rnd      *rand.Rand
-	userIDs  map[string]int64
-	userDept map[string]int
-	deptIDs  []int64
-	catIDs   []int64
-	rules    map[[2]string]ruleSeed // (cat index, type) -> rule
-	adminID  int64
-	keyIDs   map[string]int64
-	keyNums  map[string]string
-	rotation map[int]int
+	ctx     context.Context
+	tx      *sql.Tx
+	now     time.Time
+	userIDs map[string]int64
+	names   map[string]string
+	deptIDs []int64
+	catIDs  []int64
+	adminID int64
 }
 
 // Run seeds an empty database. passwordHash is the bcrypt hash of DemoPassword.
@@ -46,17 +44,24 @@ func Run(ctx context.Context, d *sql.DB, now time.Time, passwordHash string) err
 	if n > 0 {
 		return ErrAlreadySeeded
 	}
-	return db.InTx(ctx, d, func(tx *sql.Tx) error {
-		s := &seeder{ctx: ctx, tx: tx, now: now.UTC().Truncate(time.Second), rnd: rand.New(rand.NewPCG(42, 2026)),
-			userIDs: map[string]int64{}, userDept: map[string]int{}, rules: map[[2]string]ruleSeed{},
-			keyIDs: map[string]int64{}, keyNums: map[string]string{}, rotation: map[int]int{}}
-		for _, step := range []func(string) error{s.org, s.people, s.config} {
-			if err := step(passwordHash); err != nil {
-				return err
-			}
+	err := db.InTx(ctx, d, func(tx *sql.Tx) error {
+		s := &seeder{ctx: ctx, tx: tx, now: now.UTC().Truncate(time.Second), userIDs: map[string]int64{}, names: map[string]string{}}
+		if err := s.org(); err != nil {
+			return err
+		}
+		if err := s.people(passwordHash); err != nil {
+			return err
+		}
+		if err := s.config(); err != nil {
+			return err
 		}
 		return s.requests()
 	})
+	if err == nil {
+		slog.Info("demo anonymous tokens (DEMO ONLY, see backend/README.md)",
+			"A-005/MV-0005", DemoTokenA005, "A-017/MV-0017", DemoTokenA017, "A-018/MV-0018", DemoTokenA018)
+	}
+	return err
 }
 
 func (s *seeder) exec(q string, args ...any) (int64, error) {
@@ -67,7 +72,7 @@ func (s *seeder) exec(q string, args ...any) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *seeder) org(string) error {
+func (s *seeder) org() error {
 	for _, d := range departments {
 		id, err := s.exec(`INSERT INTO departments(name) VALUES (?)`, d.name)
 		if err != nil {
@@ -79,20 +84,23 @@ func (s *seeder) org(string) error {
 }
 
 func (s *seeder) people(hash string) error {
-	created := db.Unix(s.now.AddDate(0, 0, -120))
+	created := db.Unix(s.now.AddDate(0, 0, -90))
 	for _, u := range users {
 		id, err := s.exec(`INSERT INTO users(email, name, title, password_hash, role, department_id, active, created_at) VALUES (?,?,?,?,?,?,1,?)`,
-			u.login+Domain, u.name, u.title, hash, u.role, s.deptIDs[u.dept], created)
+			u.login+Domain, u.name, u.name, hash, u.role, s.deptIDs[u.dept], created)
 		if err != nil {
 			return err
 		}
 		s.userIDs[u.login] = id
-		s.userDept[u.login] = u.dept
+		s.names[u.login] = u.name
 		if u.role == "admin" && s.adminID == 0 {
 			s.adminID = id
 		}
 	}
 	for i, d := range departments {
+		if d.head == "" {
+			continue
+		}
 		if _, err := s.exec(`UPDATE departments SET head_user_id = ? WHERE id = ?`, s.userIDs[d.head], s.deptIDs[i]); err != nil {
 			return err
 		}
@@ -100,7 +108,7 @@ func (s *seeder) people(hash string) error {
 	return nil
 }
 
-func (s *seeder) config(string) error {
+func (s *seeder) config() error {
 	for i, c := range categories {
 		id, err := s.exec(`INSERT INTO categories(name, description, icon, sort, active) VALUES (?,?,?,?,1)`, c.name, c.desc, c.icon, (i+1)*10)
 		if err != nil {
@@ -113,344 +121,268 @@ func (s *seeder) config(string) error {
 		if r.typ != "" {
 			typ = r.typ
 		}
-		head := departments[r.dept].head
 		if _, err := s.exec(`INSERT INTO routing_rules(category_id, request_type, department_id, assignee_user_id, first_response_hours, resolution_hours, active) VALUES (?,?,?,?,?,?,1)`,
-			s.catIDs[r.cat], typ, s.deptIDs[r.dept], s.userIDs[head], r.fr, r.res); err != nil {
+			s.catIDs[r.cat], typ, s.deptIDs[r.dept], s.userIDs[r.assignee], r.fr, r.res); err != nil {
 			return err
 		}
-		s.rules[[2]string{fmt.Sprint(r.cat), r.typ}] = r
 	}
 	return nil
 }
 
-func (s *seeder) rule(cat int, typ string) (ruleSeed, bool) {
-	if r, ok := s.rules[[2]string{fmt.Sprint(cat), typ}]; ok {
-		return r, true
+// rule mirrors the routing engine: (category, type) first, then category-wide.
+func rule(cat int, typ string) (ruleSeed, bool) {
+	var wide *ruleSeed
+	for i := range rules {
+		if rules[i].cat != cat {
+			continue
+		}
+		if rules[i].typ == typ {
+			return rules[i], true
+		}
+		if rules[i].typ == "" {
+			wide = &rules[i]
+		}
 	}
-	r, ok := s.rules[[2]string{fmt.Sprint(cat), ""}]
-	return r, ok
+	if wide != nil {
+		return *wide, true
+	}
+	return ruleSeed{}, false
 }
 
-// fallback authors per category when a template has none
-var rotationAuthors = []string{"i.sidorov", "a.petrova", "a.fedorov", "t.zhukov", "n.morozova", "p.sokolov", "r.akhmetov"}
-
-func (s *seeder) author(t reqSeed) string {
-	if t.au != "" {
-		return t.au
-	}
-	i := s.rotation[t.cat]
-	s.rotation[t.cat]++
-	return rotationAuthors[(t.cat+i)%len(rotationAuthors)]
-}
-
-func pick[T any](r *rand.Rand, xs []T) T { return xs[r.IntN(len(xs))] }
-
-// reqState mirrors the mutable request columns while the history is simulated.
+// reqState mirrors the mutable request columns while the history is replayed.
 type reqState struct {
-	id, authorID, actorID int64
-	number, title         string
-	status                string
-	frd, rd               time.Time
-	firstResp, paused     *time.Time
-	closed                *time.Time
-	result                *string
-	dupOf                 *int64
-	cur                   time.Time
+	id                int64
+	number, title     string
+	author            *int64 // nil for anonymous requests
+	status            string
+	frd, rd           time.Time
+	firstResp, paused *time.Time
+	closed            *time.Time
+	result            *string
+	dept, assignee    *int64
+	source            string
+	updated           time.Time
+	staff             int64 // the responsible acting on the request
+	created           time.Time
 }
 
 func (s *seeder) requests() error {
-	tpls := append([]reqSeed{}, requestSeeds...)
-	sort.SliceStable(tpls, func(i, j int) bool { return tpls[i].d > tpls[j].d }) // oldest first => MV-0001 is oldest
-	for n, t := range tpls {
-		if err := s.request(n+1, t); err != nil {
-			return err
+	for i, t := range requestSeeds {
+		if err := s.request(i+1, t); err != nil {
+			return fmt.Errorf("%s: %w", t.code, err)
 		}
 	}
-	if _, err := s.exec(`UPDATE counters SET value = ? WHERE name = 'request'`, len(tpls)); err != nil {
-		return err
+	_, err := s.exec(`UPDATE counters SET value = ? WHERE name = 'request'`, len(requestSeeds))
+	return err
+}
+
+func (s *seeder) at(st *reqState, h float64) time.Time {
+	t := st.created.Add(time.Duration(h * float64(time.Hour)))
+	if limit := s.now.Add(-10 * time.Minute); t.After(limit) {
+		t = limit
 	}
-	return s.theme()
+	return t
 }
 
 func (s *seeder) request(seq int, t reqSeed) error {
-	login := s.author(t)
-	authorID := s.userIDs[login]
-	created := s.now.Add(-time.Duration(t.d*24)*time.Hour - time.Duration(1+s.rnd.IntN(7))*time.Hour - time.Duration(s.rnd.IntN(60))*time.Minute)
-	rule, routed := s.rule(t.cat, t.typ)
-	frH, resH := 24, 168
-	var dept, assignee any
-	staff := s.adminID
-	source := "unrouted"
+	created := s.now.Add(-time.Duration(t.ageH * float64(time.Hour)))
+	st := &reqState{number: fmt.Sprintf("MV-%04d", seq), title: t.title, status: "new", created: created, updated: created}
+	if !t.anon {
+		id := s.userIDs[t.author]
+		st.author = &id
+	}
+	frH, resH := requests.UnroutedFirstResponseHours, requests.UnroutedResolutionHours
 	routedText := "Подходящего правила маршрутизации нет — обращение передано администратору"
-	if routed {
-		frH, resH = rule.fr, rule.res
-		head := departments[rule.dept].head
-		dept, assignee, staff, source = s.deptIDs[rule.dept], s.userIDs[head], s.userIDs[head], "rule"
-		name := ""
-		for _, u := range users {
-			if u.login == head {
-				name = u.name
-			}
-		}
-		routedText = fmt.Sprintf("Передано: %s, ответственный: %s. Срок первого ответа — %d ч", departments[rule.dept].name, name, frH)
+	st.source, st.staff = "unrouted", s.adminID
+	if r, ok := rule(t.cat, t.typ); ok {
+		frH, resH = r.fr, r.res
+		dept, asg := s.deptIDs[r.dept], s.userIDs[r.assignee]
+		st.dept, st.assignee, st.source, st.staff = &dept, &asg, "rule", asg
+		routedText = fmt.Sprintf("Передано: %s, ответственный: %s. Срок первого ответа — %d ч", departments[r.dept].name, s.names[r.assignee], frH)
 	}
-	st := &reqState{authorID: authorID, actorID: staff, number: fmt.Sprintf("MV-%04d", seq), title: t.title, status: "new",
-		frd: created.Add(time.Duration(frH) * time.Hour), rd: created.Add(time.Duration(resH) * time.Hour), cur: created}
-	var sol any
-	if t.sol != "" {
-		sol = t.sol
+	st.frd, st.rd = created.Add(time.Duration(frH)*time.Hour), created.Add(time.Duration(resH)*time.Hour)
+
+	var tokenHash any
+	if t.anon {
+		tokenHash = requests.HashAnonymousToken(t.token)
 	}
-	id, err := s.exec(`INSERT INTO requests(number, type, category_id, title, body, proposed_solution, author_id, is_anonymous, department_id, assignee_id,
-		status, routing_source, first_response_due, resolution_due, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?)`,
-		st.number, t.typ, s.catIDs[t.cat], t.title, t.body, sol, authorID, b2i(t.anon), dept, assignee, source,
-		db.Unix(st.frd), db.Unix(st.rd), db.Unix(created), db.Unix(created))
+	id, err := s.exec(`INSERT INTO requests(number, type, priority, category_id, title, body, author_id, is_anonymous, anon_token_hash,
+		department_id, assignee_id, status, routing_source, first_response_due, resolution_due, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?)`,
+		st.number, t.typ, t.prio, s.catIDs[t.cat], t.title, t.body, db.IntOrNil(st.author), b2i(t.anon), tokenHash,
+		db.IntOrNil(st.dept), db.IntOrNil(st.assignee), st.source, db.Unix(st.frd), db.Unix(st.rd), db.Unix(created), db.Unix(created))
 	if err != nil {
 		return err
 	}
 	st.id = id
-	if t.key != "" {
-		s.keyIDs[t.key], s.keyNums[t.key] = id, st.number
-	}
-	if err := s.event(st.id, &authorID, "created", "", "new", nil, nil, created); err != nil {
+	if err := s.event(st.id, st.author, true, "created", "", "new", nil, nil, created); err != nil {
 		return err
 	}
-	if err := s.event(st.id, nil, "routed", "", "", &routedText, &source, created); err != nil {
+	if err := s.event(st.id, nil, false, "routed", "", "", &routedText, &st.source, created); err != nil {
 		return err
 	}
 	title := "Новое обращение " + st.number
-	if !routed {
+	if st.source == "unrouted" {
 		title = "Нераспределённое обращение " + st.number
 	}
-	if err := s.notify(staff, "created", st.id, title, t.title, created); err != nil {
+	if err := s.notify(st.staff, "created", st.id, title, t.title, created); err != nil {
 		return err
 	}
-	if err := s.history(st, t, frH, seq); err != nil {
+	if err := s.history(st, t); err != nil {
 		return err
 	}
 	_, err = s.exec(`UPDATE requests SET status=?, first_response_due=?, resolution_due=?, first_responded_at=?, paused_at=?, closed_at=?,
-		result_text=?, duplicate_of=?, updated_at=? WHERE id=?`,
+		result_text=?, department_id=?, assignee_id=?, routing_source=?, updated_at=? WHERE id=?`,
 		st.status, db.Unix(st.frd), db.Unix(st.rd), db.TimeOrNil(st.firstResp), db.TimeOrNil(st.paused), db.TimeOrNil(st.closed),
-		st.result, db.IntOrNil(st.dupOf), db.Unix(st.cur), st.id)
+		st.result, db.IntOrNil(st.dept), db.IntOrNil(st.assignee), st.source, db.Unix(st.updated), st.id)
 	return err
 }
 
-// advance moves the simulated clock forward by h hours, never past "now - 20 min".
-func (s *seeder) advance(st *reqState, h float64) time.Time {
-	st.cur = st.cur.Add(time.Duration(h * float64(time.Hour)))
-	if limit := s.now.Add(-20 * time.Minute); st.cur.After(limit) {
-		st.cur = limit
-	}
-	return st.cur
-}
-
-func (s *seeder) staffAction(st *reqState) {
+func (s *seeder) firstResponse(st *reqState, at time.Time) {
 	if st.firstResp == nil {
-		t := st.cur
-		st.firstResp = &t
+		st.firstResp = &at
 	}
 }
 
-func (s *seeder) setStatus(st *reqState, actor int64, to string, text *string) error {
-	from := st.status
-	if from == "needs_info" && st.paused != nil {
-		d := st.cur.Sub(*st.paused)
-		st.frd, st.rd = st.frd.Add(d), st.rd.Add(d)
-		st.paused = nil
+// history replays the dataset status with test dates.
+func (s *seeder) history(st *reqState, t reqSeed) error {
+	if t.source() == "unrouted" {
+		// A-019: no rule for «Хранение документов» -> admin queue -> the admin assigns the dataset's
+		// conditional responsible manually (dataset scenario: alternative when nobody is assigned).
+		at := s.at(st, t.frH)
+		dept, asg := s.deptIDs[dAdminHR], s.userIDs[t.responsible]
+		st.dept, st.assignee, st.source = &dept, &asg, "manual"
+		text := fmt.Sprintf("Отдел: %s; ответственный: %s", departments[dAdminHR].name, s.names[t.responsible])
+		admin := s.adminID
+		if err := s.event(st.id, &admin, false, "assigned", "", "", &text, ptr("manual"), at); err != nil {
+			return err
+		}
+		if err := s.notify(asg, "assigned", st.id, "Вам передано обращение "+st.number, t.title, at); err != nil {
+			return err
+		}
+		s.firstResponse(st, at)
+		st.updated = at
+		st.staff = asg
+		t.frH += 1 // the responsible starts the review an hour later
 	}
-	if to == "needs_info" {
-		t := st.cur
-		st.paused = &t
+	if t.note != "" && t.question == "" {
+		// «Пример дальнейшего действия» -> internal note by the responsible (never shown to the author)
+		h := t.frH + 0.5
+		if t.frH == 0 {
+			h = min(2, t.ageH/2)
+		}
+		if err := s.comment(st, st.staff, "internal", t.note, s.at(st, h)); err != nil {
+			return err
+		}
 	}
-	st.status = to
-	if to == "implemented" || to == "declined" || to == "duplicate" || to == "closed" {
-		t := st.cur
-		st.closed = &t
-	}
-	if err := s.event(st.id, &actor, "status_changed", from, to, text, nil, st.cur); err != nil {
-		return err
-	}
-	if actor == st.authorID {
+	if t.status == "new" {
 		return nil
 	}
-	body := st.title
-	if text != nil {
-		body = *text
+	first := s.at(st, t.frH)
+	if t.status == "needs_info" {
+		// «Ожидает уточнения» -> staff question; the SLA clock is paused
+		if err := s.comment(st, st.staff, "question", t.question, first); err != nil {
+			return err
+		}
+		s.firstResponse(st, first)
+		if err := s.setStatus(st, "needs_info", nil, first); err != nil {
+			return err
+		}
+		return s.notifyAuthor(st, "question", st.number+": нужен ваш ответ", t.question, first)
 	}
-	return s.notify(st.authorID, "status_changed", st.id, fmt.Sprintf("%s: статус «%s»", st.number, statusLabel[to]), body, st.cur)
+	s.firstResponse(st, first)
+	if err := s.setStatus(st, "in_review", nil, first); err != nil {
+		return err
+	}
+	switch t.status {
+	case "in_review":
+		return nil
+	case "in_progress", "implemented":
+		end := t.ageH
+		if t.status == "implemented" {
+			end = t.closeH
+		}
+		span := end - t.frH
+		if err := s.setStatus(st, "decision", nil, s.at(st, t.frH+span*0.3)); err != nil {
+			return err
+		}
+		if err := s.setStatus(st, "in_progress", nil, s.at(st, t.frH+span*0.5)); err != nil {
+			return err
+		}
+		if t.status == "in_progress" {
+			return nil
+		}
+		return s.closeWith(st, "implemented", t.result, s.at(st, t.closeH))
+	case "declined", "closed":
+		return s.closeWith(st, t.status, t.result, s.at(st, t.closeH))
+	}
+	return fmt.Errorf("seed: unknown status %q", t.status)
+}
+
+func (t reqSeed) source() string {
+	if _, ok := rule(t.cat, t.typ); ok {
+		return "rule"
+	}
+	return "unrouted"
 }
 
 var statusLabel = map[string]string{"new": "Новое", "in_review": "В проработке", "needs_info": "Нужно уточнение", "decision": "Принятие решения",
 	"in_progress": "Реализация", "implemented": "Реализовано", "declined": "Отклонено", "duplicate": "Дубликат", "closed": "Закрыто"}
 
-func (s *seeder) comment(st *reqState, author int64, kind, body string) error {
-	_, err := s.exec(`INSERT INTO comments(request_id, author_id, kind, body, created_at) VALUES (?,?,?,?,?)`, st.id, author, kind, body, db.Unix(st.cur))
-	return err
-}
-
-// firstResponseDelay: mostly within SLA, sometimes late (realistic median/p90).
-func (s *seeder) firstResponseDelay(frH int) float64 {
-	f := 0.1 + s.rnd.Float64()*0.9
-	if s.rnd.IntN(5) == 0 {
-		f = 1.05 + s.rnd.Float64()*0.6
+func (s *seeder) setStatus(st *reqState, to string, text *string, at time.Time) error {
+	from := st.status
+	if from == "needs_info" && st.paused != nil {
+		d := at.Sub(*st.paused)
+		st.frd, st.rd = st.frd.Add(d), st.rd.Add(d)
+		st.paused = nil
 	}
-	return float64(frH) * f
-}
-
-func (s *seeder) history(st *reqState, t reqSeed, frH, seq int) error {
-	staff := st.actorID
-	ask := func() error {
-		s.advance(st, 2+s.rnd.Float64()*20)
-		s.staffAction(st)
-		q := pick(s.rnd, questions)
-		if err := s.comment(st, staff, "question", q); err != nil {
-			return err
-		}
-		if err := s.setStatus(st, staff, "needs_info", nil); err != nil {
-			return err
-		}
-		return s.notify(st.authorID, "question", st.id, st.number+": нужен ваш ответ", q, st.cur)
+	if to == "needs_info" {
+		st.paused = &at
 	}
-	answer := func() error {
-		s.advance(st, 2+s.rnd.Float64()*30)
-		a := pick(s.rnd, answers)
-		if err := s.comment(st, st.authorID, "answer", a); err != nil {
-			return err
-		}
-		if err := s.setStatus(st, st.authorID, "in_review", nil); err != nil {
-			return err
-		}
-		return s.notify(staff, "answer", st.id, st.number+": ответ на уточнение", a, st.cur)
+	st.status = to
+	if to == "implemented" || to == "declined" || to == "duplicate" || to == "closed" {
+		st.closed = &at
 	}
-	review := func() error {
-		s.advance(st, s.firstResponseDelay(frH))
-		s.staffAction(st)
-		if err := s.setStatus(st, staff, "in_review", nil); err != nil {
-			return err
-		}
-		if s.rnd.IntN(2) == 0 {
-			s.advance(st, 0.2)
-			c := pick(s.rnd, staffComments)
-			if err := s.comment(st, staff, "comment", c); err != nil {
-				return err
-			}
-			if err := s.notify(st.authorID, "comment", st.id, st.number+": новый комментарий", c, st.cur); err != nil {
-				return err
-			}
-		}
-		if s.rnd.IntN(4) == 0 {
-			s.advance(st, 0.5)
-			return s.comment(st, staff, "internal", pick(s.rnd, internalNotes))
-		}
-		return nil
-	}
-	result := func(def string) *string {
-		r := t.res
-		if r == "" {
-			r = def
-		}
-		return &r
-	}
-	switch t.st {
-	case "new":
-		return nil
-	case "in_review":
-		return review()
-	case "needs_info":
-		s.advance(st, s.firstResponseDelay(frH)*0.6)
-		return ask()
-	case "decision", "in_progress", "implemented":
-		if err := review(); err != nil {
-			return err
-		}
-		if seq%3 == 0 {
-			if err := ask(); err != nil {
-				return err
-			}
-			if err := answer(); err != nil {
-				return err
-			}
-		}
-		s.advance(st, 8+s.rnd.Float64()*60)
-		if err := s.setStatus(st, staff, "decision", ptr(pick(s.rnd, decisionTexts))); err != nil {
-			return err
-		}
-		if t.st == "decision" {
-			return nil
-		}
-		s.advance(st, 6+s.rnd.Float64()*40)
-		if err := s.setStatus(st, staff, "in_progress", ptr(pick(s.rnd, inProgressTexts))); err != nil {
-			return err
-		}
-		reports := 1 + (seq+len(t.title))%3
-		for i := 0; i < reports; i++ {
-			s.advance(st, 12+s.rnd.Float64()*48)
-			txt := progressReports[(seq*3+i*5)%len(progressReports)]
-			if err := s.comment(st, staff, "report", txt); err != nil {
-				return err
-			}
-			if err := s.notify(st.authorID, "report", st.id, st.number+": отчёт о ходе работ", txt, st.cur); err != nil {
-				return err
-			}
-		}
-		if t.st == "implemented" {
-			s.advance(st, 72+s.rnd.Float64()*400)
-			return s.closeWith(st, staff, "implemented", result("Реализовано: изменения внедрены, ответственные проинформированы."))
-		}
-		return nil
-	case "declined":
-		if err := review(); err != nil {
-			return err
-		}
-		s.advance(st, 10+s.rnd.Float64()*70)
-		return s.closeWith(st, staff, "declined", result("Отклонено после рассмотрения: предложенное решение сейчас нецелесообразно."))
-	case "closed":
-		if err := review(); err != nil {
-			return err
-		}
-		s.advance(st, 6+s.rnd.Float64()*48)
-		return s.closeWith(st, staff, "closed", result("Закрыто: вопрос решён в рабочем порядке, дополнительных действий не требуется."))
-	case "duplicate":
-		s.advance(st, s.firstResponseDelay(frH))
-		s.staffAction(st)
-		orig, ok := s.keyIDs[t.dup]
-		if !ok {
-			return fmt.Errorf("seed: unknown duplicate original %q", t.dup)
-		}
-		st.dupOf = &orig
-		return s.closeWith(st, staff, "duplicate", ptr(fmt.Sprintf("Объединено с обращением %s — ход решения смотрите там.", s.keyNums[t.dup])))
-	}
-	return fmt.Errorf("seed: unknown status %q", t.st)
-}
-
-func (s *seeder) closeWith(st *reqState, staff int64, status string, text *string) error {
-	st.result = text
-	return s.setStatus(st, staff, status, text)
-}
-
-func (s *seeder) theme() error {
-	at := s.now.AddDate(0, 0, -20)
-	tid, err := s.exec(`INSERT INTO themes(title, created_by, created_at) VALUES (?,?,?)`, ThemeTitle, s.userIDs["e.kuznetsova"], db.Unix(at))
-	if err != nil {
+	st.updated = at
+	staff := st.staff
+	if err := s.event(st.id, &staff, false, "status_changed", from, to, text, nil, at); err != nil {
 		return err
 	}
-	text := "Тема: " + ThemeTitle
-	for _, k := range themeMembers {
-		id := s.keyIDs[k]
-		if _, err := s.exec(`UPDATE requests SET theme_id = ? WHERE id = ?`, tid, id); err != nil {
-			return err
-		}
-		actor := s.userIDs["e.kuznetsova"]
-		if err := s.event(id, &actor, "theme_linked", "", "", &text, nil, at); err != nil {
-			return err
-		}
+	body := st.title
+	if text != nil {
+		body = *text
 	}
-	return nil
+	return s.notifyAuthor(st, "status_changed", fmt.Sprintf("%s: статус «%s»", st.number, statusLabel[to]), body, at)
 }
 
-func (s *seeder) event(reqID int64, actor *int64, kind, from, to string, text, meta *string, at time.Time) error {
-	_, err := s.exec(`INSERT INTO request_events(request_id, actor_id, kind, from_status, to_status, text, meta, created_at) VALUES (?,?,?,?,?,?,?,?)`,
-		reqID, db.IntOrNil(actor), kind, nullStr(from), nullStr(to), text, meta, db.Unix(at))
+func (s *seeder) closeWith(st *reqState, status, result string, at time.Time) error {
+	if strings.TrimSpace(result) == "" {
+		return fmt.Errorf("seed: %s needs a result text", status)
+	}
+	st.result = &result
+	return s.setStatus(st, status, &result, at)
+}
+
+func (s *seeder) comment(st *reqState, author int64, kind, body string, at time.Time) error {
+	if at.After(st.updated) {
+		st.updated = at
+	}
+	_, err := s.exec(`INSERT INTO comments(request_id, author_id, by_author, kind, body, created_at) VALUES (?,?,0,?,?,?)`, st.id, author, kind, body, db.Unix(at))
 	return err
+}
+
+func (s *seeder) event(reqID int64, actor *int64, byAuthor bool, kind, from, to string, text, meta *string, at time.Time) error {
+	_, err := s.exec(`INSERT INTO request_events(request_id, actor_id, by_author, kind, from_status, to_status, text, meta, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+		reqID, db.IntOrNil(actor), b2i(byAuthor), kind, nullStr(from), nullStr(to), text, meta, db.Unix(at))
+	return err
+}
+
+// notifyAuthor writes an in-app notification for a NAMED author; anonymous authors get none (CR2).
+func (s *seeder) notifyAuthor(st *reqState, kind, title, body string, at time.Time) error {
+	if st.author == nil {
+		return nil
+	}
+	return s.notify(*st.author, kind, st.id, title, body, at)
 }
 
 func (s *seeder) notify(userID int64, kind string, reqID int64, title, body string, at time.Time) error {

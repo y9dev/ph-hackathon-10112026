@@ -27,12 +27,19 @@ type Limits struct {
 	BodyMax           int      `json:"body_max"`
 }
 
+// Features are optional capabilities of this deployment.
+type Features struct {
+	Telegram bool `json:"telegram"`
+	Priority bool `json:"priority"`
+}
+
 // Meta is the contract Meta.
 type Meta struct {
 	Categories      []org.Category        `json:"categories"`
 	Departments     []org.Department      `json:"departments"`
 	Statuses        []StatusMeta          `json:"statuses"`
 	Limits          Limits                `json:"limits"`
+	Features        Features              `json:"features"`
 	AssignableUsers []identity.Assignable `json:"assignable_users"`
 }
 
@@ -47,6 +54,7 @@ func (s *Service) Meta(ctx context.Context, a authz.Actor) (Meta, error) {
 		return Meta{}, err
 	}
 	m := Meta{Categories: cats, Departments: depts, AssignableUsers: []identity.Assignable{},
+		Features: Features{Priority: true, Telegram: s.TelegramEnabled},
 		Limits: Limits{MaxFiles: MaxFiles, MaxFileMB: MaxFileBytes >> 20, MaxTotalMB: MaxTotalBytes >> 20,
 			AllowedExtensions: AllowedExtensions, TitleMax: TitleMax, BodyMax: BodyMax}}
 	for _, st := range AllStatuses {
@@ -78,7 +86,7 @@ const similarWindow = 90 * 24 * time.Hour
 func (s *Service) RoutingPreview(ctx context.Context, _ authz.Actor, categoryID int64, typ string) (Preview, error) {
 	var v apperr.V
 	if !ValidType(typ) {
-		v.Add("type", "Выберите тип: проблема или предложение")
+		v.Add("type", errTypeMsg)
 	}
 	if categoryID <= 0 {
 		v.Add("category_id", "Выберите категорию")

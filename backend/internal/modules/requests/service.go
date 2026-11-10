@@ -75,6 +75,10 @@ type Deps struct {
 	// Per-user rate limits per hour; 0 selects the defaults, negative disables.
 	CreatePerHour  int
 	CommentPerHour int
+	// AnonPerMinute limits the token endpoints (/anonymous/*) per client IP; 0 = default, negative disables.
+	AnonPerMinute int
+	// TelegramEnabled reports whether the Telegram bot runs (Meta.features.telegram).
+	TelegramEnabled bool
 }
 
 // Service implements the request use cases. Every method takes the acting Actor.
@@ -82,12 +86,14 @@ type Service struct {
 	Deps
 	createLimit  *ratelimit.Limiter
 	commentLimit *ratelimit.Limiter
+	anonLimit    *ratelimit.Limiter
 }
 
 // Default per-user hourly limits for POST /requests and POST /requests/{id}/comments.
 const (
 	DefaultCreatePerHour  = 20
 	DefaultCommentPerHour = 60
+	DefaultAnonPerMinute  = 10
 )
 
 func limitOrDefault(v, def int) int {
@@ -106,7 +112,8 @@ func NewService(d Deps) *Service {
 	}
 	return &Service{Deps: d,
 		createLimit:  ratelimit.New(limitOrDefault(d.CreatePerHour, DefaultCreatePerHour), time.Hour),
-		commentLimit: ratelimit.New(limitOrDefault(d.CommentPerHour, DefaultCommentPerHour), time.Hour)}
+		commentLimit: ratelimit.New(limitOrDefault(d.CommentPerHour, DefaultCommentPerHour), time.Hour),
+		anonLimit:    ratelimit.New(limitOrDefault(d.AnonPerMinute, DefaultAnonPerMinute), time.Minute)}
 }
 
 func (s *Service) now() time.Time { return s.Now().UTC().Truncate(time.Second) }
@@ -239,6 +246,21 @@ func (s *Service) Create(ctx context.Context, a authz.Actor, in CreateInput, fil
 	if err != nil {
 		return Detail{}, err
 	}
+	// CR2: an anonymous request stores NO author link anywhere (request, events, attachments,
+	// notifications). The author keeps a one-time token; only its SHA-256 is stored.
+	var authorID *int64
+	var token string
+	var tokenHash *string
+	skipNotify := a.UserID // the creator does not notify themselves...
+	if in.IsAnonymous {
+		if token, err = NewAnonymousToken(); err != nil {
+			return Detail{}, err
+		}
+		tokenHash = ptr(HashAnonymousToken(token))
+		skipNotify = 0 // ...unless anonymous: skipping them would reveal who wrote it
+	} else {
+		authorID = &a.UserID
+	}
 	stored, err := storeUploads(s.UploadDir, files)
 	if err != nil {
 		return Detail{}, err
@@ -257,20 +279,20 @@ func (s *Service) Create(ctx context.Context, a authz.Actor, in CreateInput, fil
 		if in.ProposedSolution != "" {
 			prop = &in.ProposedSolution
 		}
-		id, err = s.Store.InsertRequest(ctx, tx, NewRequest{Number: number, Type: in.Type, CategoryID: cat.ID, Title: in.Title, Body: in.Body,
-			ProposedSolution: prop, AuthorID: a.UserID, IsAnonymous: in.IsAnonymous, DepartmentID: route.DepartmentID,
-			AssigneeID: route.AssigneeID, RoutingSource: route.Source, FirstResponseDue: frd, ResolutionDue: rd, CreatedAt: now})
+		id, err = s.Store.InsertRequest(ctx, tx, NewRequest{Number: number, Type: in.Type, Priority: in.Priority, CategoryID: cat.ID, Title: in.Title,
+			Body: in.Body, ProposedSolution: prop, AuthorID: authorID, IsAnonymous: in.IsAnonymous, AnonTokenHash: tokenHash,
+			DepartmentID: route.DepartmentID, AssigneeID: route.AssigneeID, RoutingSource: route.Source, FirstResponseDue: frd, ResolutionDue: rd, CreatedAt: now})
 		if err != nil {
 			return err
 		}
-		if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: id, ActorID: &a.UserID, Kind: EvCreated, ToStatus: ptr(StatusNew), At: now}); err != nil {
+		if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: id, ActorID: authorID, ByAuthor: true, Kind: EvCreated, ToStatus: ptr(StatusNew), At: now}); err != nil {
 			return err
 		}
 		if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: id, Kind: EvRouted, Text: ptr(routedText(route)), Meta: ptr(route.Source), At: now}); err != nil {
 			return err
 		}
 		for _, f := range stored {
-			if err := s.Store.InsertAttachment(ctx, tx, id, a.UserID, f, now); err != nil {
+			if err := s.Store.InsertAttachment(ctx, tx, id, authorID, f, now); err != nil {
 				return err
 			}
 		}
@@ -278,7 +300,7 @@ func (s *Service) Create(ctx context.Context, a authz.Actor, in CreateInput, fil
 		if !route.Routed() {
 			title = fmt.Sprintf("Нераспределённое обращение %s", number)
 		}
-		return s.Notifier.Write(ctx, tx, a.UserID, notes(recipients, notifications.KindCreated, id, title, excerpt(in.Title, 200)))
+		return s.Notifier.Write(ctx, tx, skipNotify, notes(recipients, notifications.KindCreated, id, title, excerpt(in.Title, 200)))
 	})
 	if err != nil {
 		removeStored(s.UploadDir, stored)
@@ -289,7 +311,17 @@ func (s *Service) Create(ctx context.Context, a authz.Actor, in CreateInput, fil
 		return Detail{}, err
 	}
 	s.publish(ctx, eventbus.RequestCreated, d.Row, map[string]any{"category_id": cat.ID, "routing_source": route.Source, "department_id": route.DepartmentID})
-	return s.buildDetail(ctx, a, d)
+	if !in.IsAnonymous {
+		return s.buildDetail(ctx, a, d)
+	}
+	// the creator sees the request as its anonymous author, with the token exactly once
+	d.Author.ID = anonSelfID
+	out, err := s.buildDetail(ctx, anonAuthorViewer(), d)
+	if err != nil {
+		return Detail{}, err
+	}
+	out.AnonymousToken = &token
+	return out, nil
 }
 
 func routedText(r Route) string {
@@ -354,8 +386,20 @@ func (s *Service) buildDetail(ctx context.Context, a authz.Actor, r DetailRow) (
 		d.Attachments = append(d.Attachments, AttachmentView{ID: at.ID, Filename: at.Filename, MIME: at.MIME, Size: at.Size})
 	}
 	d.AllowedStatuses, d.AllowedCommentKinds, d.CanAssign = allowedFor(r.Row, a)
+	if a.UserID == anonSelfID {
+		// token holder: the server picks the kind (answer while needs_info, else comment)
+		switch {
+		case r.Status.Terminal():
+			d.AllowedCommentKinds = []string{}
+		case r.Status == StatusNeedsInfo:
+			d.AllowedCommentKinds = []string{KindAnswer}
+		default:
+			d.AllowedCommentKinds = []string{KindComment}
+		}
+	}
 	if s.Similar != nil {
 		if a.IsStaff() {
+			// CR6: staff read every request, so similar items come from the whole company
 			matches, err := s.Similar.FindSimilar(ctx, r.ID)
 			if err != nil {
 				return Detail{}, err
@@ -365,9 +409,7 @@ func (s *Service) buildDetail(ctx context.Context, a authz.Actor, r DetailRow) (
 				if len(d.Similar.Items) >= 5 {
 					break
 				}
-				if a.CanManage(m.DepartmentID, m.AssigneeID) {
-					d.Similar.Items = append(d.Similar.Items, SimilarItem{ID: m.ID, Number: m.Number, Title: m.Title, Status: m.Status, Score: m.Score})
-				}
+				d.Similar.Items = append(d.Similar.Items, SimilarItem{ID: m.ID, Number: m.Number, Title: m.Title, Status: m.Status, Score: m.Score})
 			}
 		} else {
 			// aggregate only: same category, recent, and never a small number
@@ -392,6 +434,9 @@ type ListQuery struct {
 	DepartmentID *int64
 	Assignee     string
 	Overdue      *bool
+	Priority     string
+	RequestType  string
+	MineScope    *bool // scope=all for managers: true limits to owned requests
 	Q            string
 	Sort         string
 	Page         int
@@ -400,17 +445,34 @@ type ListQuery struct {
 
 func (s *Service) filter(a authz.Actor, q ListQuery) (ListFilter, error) {
 	var v apperr.V
-	f := ListFilter{Now: s.now(), CategoryID: q.CategoryID, DepartmentID: q.DepartmentID, Overdue: q.Overdue, Query: q.Q, Sort: q.Sort, Tab: q.Tab}
+	f := ListFilter{Now: s.now(), CategoryID: q.CategoryID, DepartmentID: q.DepartmentID, Overdue: q.Overdue, Query: q.Q, Sort: q.Sort, Tab: q.Tab,
+		Priority: q.Priority, RequestType: q.RequestType}
 	switch q.Scope {
 	case "mine":
+		// anonymous requests have author_id NULL and therefore never match (CR2)
 		f.ScopeSQL, f.ScopeArgs = "r.author_id = ?", []any{a.UserID}
-	case "inbox", "all":
+	case "inbox":
 		if err := authz.RequireStaff(a); err != nil {
 			return ListFilter{}, err
 		}
 		f.ScopeSQL, f.ScopeArgs = authz.ScopeSQL(a, "r.department_id", "r.assignee_id")
+	case "all":
+		if err := authz.RequireStaff(a); err != nil {
+			return ListFilter{}, err
+		}
+		// CR6: managers read every request; mine_scope=true narrows to the owned ones
+		f.ScopeSQL = "1=1"
+		if q.MineScope != nil && *q.MineScope {
+			f.ScopeSQL, f.ScopeArgs = authz.ScopeSQL(a, "r.department_id", "r.assignee_id")
+		}
 	default:
 		v.Add("scope", "scope: mine, inbox или all")
+	}
+	if q.Priority != "" && !ValidPriority(q.Priority) {
+		v.Add("priority", "priority: low, medium или high")
+	}
+	if q.RequestType != "" && !ValidType(q.RequestType) {
+		v.Add("request_type", "request_type: problem, idea или feedback")
 	}
 	switch q.Tab {
 	case "", "all", "needs_action", "in_progress", "waiting_author", "closed":
@@ -434,9 +496,9 @@ func (s *Service) filter(a authz.Actor, q ListQuery) (ListFilter, error) {
 		v.Add("assignee", "assignee: me или none")
 	}
 	switch q.Sort {
-	case "", "deadline", "newest", "oldest", "updated":
+	case "", "deadline", "newest", "oldest", "updated", "priority":
 	default:
-		v.Add("sort", "sort: deadline, newest, oldest или updated")
+		v.Add("sort", "sort: deadline, newest, oldest, updated или priority")
 	}
 	if utf8.RuneCountInString(q.Q) > 200 {
 		v.Add("q", "Поисковый запрос: не более 200 символов")
@@ -478,9 +540,9 @@ func (s *Service) List(ctx context.Context, a authz.Actor, q ListQuery) (ListRes
 	return ListResult{Items: items, Total: total, Page: f.Offset/f.Limit + 1, PageSize: f.Limit, Counts: counts}, nil
 }
 
-// ListOverdue returns currently overdue requests in the actor's staff scope (analytics).
+// ListOverdue returns currently overdue requests company-wide for staff (analytics, CR6).
 func (s *Service) ListOverdue(ctx context.Context, a authz.Actor, departmentID *int64, limit int) ([]Summary, error) {
-	res, err := s.List(ctx, a, ListQuery{Scope: "inbox", Overdue: ptr(true), DepartmentID: departmentID, Sort: "deadline", PageSize: limit})
+	res, err := s.List(ctx, a, ListQuery{Scope: "all", Overdue: ptr(true), DepartmentID: departmentID, Sort: "deadline", PageSize: limit})
 	if err != nil {
 		return nil, err
 	}

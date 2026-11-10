@@ -15,28 +15,95 @@ DEMO_MODE=true go run ./cmd/server  # login screen lists demo accounts
 
 Open http://localhost:8080 (UI) or http://localhost:8080/healthz. Reset demo data: stop the server, delete `DATA_DIR`, run with `--seed`.
 
-Demo accounts (synthetic), password `Demo1234!` for all:
+### Demo data (CR1: dataset only)
 
-| Role | Email |
-|---|---|
-| Admin (Руководство) | admin@modus.demo |
-| Manager, IT-разработка | e.kuznetsova@modus.demo |
-| Manager, Сервис | s.volkov@modus.demo |
-| Manager, Продажи / Закупки / Проектирование / Пусконаладка | a.melnikov@ / o.nazarova@ / d.lebedev@ / i.gromov@modus.demo |
-| Employee | i.sidorov@modus.demo, a.petrova@modus.demo (+12 more) |
+The seed (`internal/seed`) contains ONLY `docs/DATASET.md`: exactly the 20 requests A-001…A-020 with their original
+texts (`MV-0001` = A-001 … `MV-0020` = A-020; titles are short headings derived from the first clause), types
+`problem`/`idea`/`feedback`, the dataset priorities, the 18 dataset topic labels as categories, and the dataset's
+conditional roles as users (display name = role title, no personal names). Dataset status mapping: Новое=`new`,
+На рассмотрении=`in_review`, В работе=`in_progress`, Ожидает уточнения=`needs_info` (with a staff `question`),
+Реализовано=`implemented`, Отклонено=`declined`, Закрыто=`closed`. «Пример дальнейшего действия» is an internal note
+of the responsible; «Пример результата / мотивированного ответа» is the `result_text` (A-018 has only an action, so its
+result text is that action in past tense). Only test dates are added (deterministic, relative to the seeding time):
+created over ~58 days, first responses 3–61 h (two of them after the deadline), 4 overdue open requests (A-001, A-003,
+A-007, A-020), closed ones with `closed_at`.
 
-The seed is deterministic: ~75 requests over the last 90 days, all statuses, 4 similarity clusters
-(double entry 1С/Битрикс24, late supplier shipments, no commissioning checklist, slow 1С reports),
-~12% anonymous, ~8 overdue, category «Другое» has no routing rule (unrouted admin queue).
-After start the overdue ticker emits overdue notifications/escalations for the seeded data.
+Routing: one rule per category to the department and the dataset's conditional responsible (SLA 24–72 h first response,
+120–336 h resolution); «Корпоративная среда» has an extra `feedback` rule to «HR / внутренние коммуникации» (A-018).
+**«Хранение документов» has no rule on purpose**: A-019 landed in the unrouted admin queue and the admin assigned it
+manually to «Администратор документов» (timeline shows it). Submit a new request in that category to show the queue.
+
+Departments: Закупки, Продажи, Проектирование, Бухгалтерия, Управление проектами, IT (no head: the dataset has no
+«Руководитель IT»), Административный отдел и HR, Руководство направлений.
+
+Accounts, password `Demo1234!` for all (e-mail = `<login>@modus.demo`); the first six are the quick logins:
+
+| Role | Name | Email |
+|---|---|---|
+| author (employee) | Сотрудник закупок | purchasing.employee@modus.demo |
+| author (employee) | Менеджер по продажам | sales.manager@modus.demo |
+| responsible (head of Закупки) | Руководитель закупок | purchasing.head@modus.demo |
+| responsible (IT) | IT-специалист | it.specialist@modus.demo |
+| manager of another department (observer demo) | Руководитель проектирования | design.head@modus.demo |
+| admin | Администратор системы | admin@modus.demo |
+| other authors | Сотрудник проектирования / бухгалтерии / офиса, Координатор проекта, Руководитель проекта | design.employee@, accounting.employee@, office.employee@, project.coordinator@, project.lead@ |
+| other responsibles | Руководитель направления, Ответственный за номенклатуру / обучение / процессы / договоры, Руководитель бухгалтерии / подразделения / продаж / проектов, Административный руководитель, HR / внутренние коммуникации, Администратор документов | direction.head@, catalog.owner@, training.owner@, process.owner@, contracts.owner@, accounting.head@, unit.head@, sales.head@, projects.head@, admin.head@, hr.comms@, documents.admin@ |
+
+**Anonymous demo requests (DEMO ONLY tokens, public; real tokens are random and shown once):**
+
+| Request | Status | Token |
+|---|---|---|
+| A-005 / MV-0005 | needs_info (answer by token) | `DEM0-A005-7K3Q-9XWB-2HRT-M4ZP-C8NV` |
+| A-017 / MV-0017 | declined (motivated refusal) | `DEM0-A017-5JPV-W2QX-8KTN-R6MD-H3ZB` |
+| A-018 / MV-0018 | closed (positive feedback) | `DEM0-A018-Q9RT-4MXK-7CWP-N2JH-B5VZ` |
+
+They are also printed in the log when seeding. After start the overdue ticker emits overdue notifications/escalations.
 
 ## Request lifecycle (ARCHITECTURE R10)
 
 Statuses: `new`, `in_review` (В проработке), `needs_info`, `decision` (Принятие решения), `in_progress` (Реализация),
 terminal `implemented`, `declined`, `duplicate`, `closed` (Закрыто). Terminal statuses require `result_text`;
 `closed` is reachable from every open status. Staff in scope add progress reports (comment kind `report`) while the
-request is `in_review`, `decision` or `in_progress`; the author is notified (also when anonymous).
+request is `in_review`, `decision` or `in_progress`; a named author is notified (anonymous authors see it by token).
 Migration `0002_lifecycle` maps legacy `accepted` to `in_progress`.
+
+Priority (CR1): `low|medium|high`, optional on create (default `medium`), in summaries/details and CSV; list filters
+`priority`, `request_type` (`problem|idea|feedback`), `sort=priority` (high first, then the deadline order).
+
+## Full anonymity (CR2, migration `0003_dataset_anonymity`)
+
+- An anonymous request stores **no author**: `requests.author_id IS NULL` (CHECK `is_anonymous=1 ⇔ author_id IS NULL`);
+  author-side rows are marked `by_author=1` with `comments.author_id` / `request_events.actor_id` NULL;
+  `attachments.uploaded_by` NULL; no notification rows for the author. The user id is seen only by the in-memory
+  per-user create rate limiter; the access log never contains user ids (tested by capturing logs).
+- The server generates a token: 28 Crockford base32 symbols from `crypto/rand` (140 bits), grouped
+  `XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`; only SHA-256 of the canonical form is stored (`anon_token_hash`, unique). It is
+  returned once, as `anonymous_token` in the 201 of `POST /requests`, and never logged. Input is case/separator
+  insensitive (`O→0`, `I/L→1`).
+- Session-less endpoints, limited per client IP (10/min per endpoint, 429): `POST /anonymous/lookup {token}` (author
+  view, no internal notes), `POST /anonymous/comments {token, body}` (answer while `needs_info` → `in_review` and
+  owners notified, else comment; closed → 409), `GET /anonymous/attachments/{id}` with header `X-Anonymous-Token`.
+  Wrong or malformed tokens get the identical 404; hash comparison is constant time.
+- `scope=mine` never lists anonymous requests; the creator's session gets 404 on them (there is no link).
+- **Migration of existing data:** anonymous rows lose the author link irreversibly — their former authors can no
+  longer open them (there are no tokens for legacy rows) and their notifications about them are deleted. The
+  `.down.sql` cannot restore the link (author-less rows are attributed to the first admin).
+- A staff member who files an anonymous request about their own department sees it as staff (owner), because the
+  system no longer knows they wrote it; the "cannot review own request" rule cannot apply to anonymous requests.
+
+## Manager visibility (CR6)
+
+Managers read every request (`scope=all`, detail, attachments, similar items, analytics and themes company-wide;
+`department_id` filters analytics). `access_level` per request: `owner` (admin; manager heading the request's
+department or assigned to it), `observer` (any other manager: may add `comment` and `internal` only; status, assign,
+question, report, duplicate, close and theme return 403; observer comments are not a first response and notify the
+named author and the owner, observer internal notes notify the owner), `author`. `scope=inbox` and
+`scope=all&mine_scope=true` keep the owned requests only. Suggested groups stay in the owner scope (they lead to theme
+linking, an owner action).
+
+Analytics (CR5): `first_response_on_time_share` (answered by `first_response_due`, which already includes needs_info
+pause shifts, among requests with a first response), `first_response_sample`, `median_first_response_hours`,
+`median_resolution_hours` (created → closed among closed requests of the period, period = creation date). p90 removed.
 
 ## Configuration (env or `.env`, see `.env.example`)
 
@@ -97,7 +164,9 @@ go test -race ./...      # needs CGO (gcc) on Windows
 Coverage map: `modules/requests/domain_test.go` (transitions, SLA/pause, routing fallback, AuthorView, upload sniffing),
 `modules/insights/similarity_test.go`, `modules/identity/throttle_test.go`,
 `app/access_test.go` (every cell of the access matrix, routing/AC-10, SLA pause, overdue ticker),
-`app/http_test.go` (journeys J1–J4, anonymity across all endpoints, attachment rejections, login throttle, 401/403/404, CSV, admin, seed).
+`app/http_test.go` (journeys J1–J4, anonymity across all endpoints, attachment rejections, login throttle, 401/403/404, CSV, admin),
+`app/cr_*_test.go` (CR1 seed vs DATASET.md, CR2 DB/log scan + token flow + throttle + migration from a pre-0003 DB,
+CR6 observer restrictions per endpoint, CR1 priority/type filters, CR5 KPIs), `modules/insights/kpi_test.go`.
 
 ## Layout
 

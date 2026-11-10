@@ -39,6 +39,10 @@ func clientIP(r *http.Request, trustedProxy bool) string {
 	return host
 }
 
+// ClientIP resolves the client address with the deployment's proxy policy (used by other modules'
+// per-IP throttles, e.g. the anonymous token endpoints).
+func (s *Service) ClientIP(r *http.Request) string { return clientIP(r, s.cfg.TrustedProxy) }
+
 func secureRequest(r *http.Request) bool {
 	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
