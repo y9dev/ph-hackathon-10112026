@@ -100,6 +100,38 @@ func (s *SQLiteStore) Facts(ctx context.Context, scope Scope, from, to *time.Tim
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) ResolutionHours(ctx context.Context, scope Scope, from, to *time.Time, departmentID *int64) ([]float64, error) {
+	q := `SELECT r.closed_at - r.created_at FROM requests r
+		WHERE (` + scope.SQL + `) AND r.closed_at IS NOT NULL AND r.status IN ('implemented','declined','duplicate','closed')`
+	args := append([]any{}, scope.Args...)
+	if from != nil {
+		q += ` AND r.closed_at >= ?`
+		args = append(args, db.Unix(*from))
+	}
+	if to != nil {
+		q += ` AND r.closed_at < ?`
+		args = append(args, db.Unix(*to))
+	}
+	if departmentID != nil {
+		q += ` AND r.department_id = ?`
+		args = append(args, *departmentID)
+	}
+	rows, err := s.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query resolution times: %w", err)
+	}
+	defer rows.Close()
+	var out []float64
+	for rows.Next() {
+		var sec int64
+		if err := rows.Scan(&sec); err != nil {
+			return nil, err
+		}
+		out = append(out, float64(sec)/3600)
+	}
+	return out, rows.Err()
+}
+
 func (s *SQLiteStore) FirstCreated(ctx context.Context, scope Scope) (*time.Time, error) {
 	var v sql.NullInt64
 	if err := s.DB.QueryRowContext(ctx, `SELECT MIN(r.created_at) FROM requests r WHERE (`+scope.SQL+`)`, scope.Args...).Scan(&v); err != nil {

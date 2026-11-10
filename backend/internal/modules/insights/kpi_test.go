@@ -52,6 +52,32 @@ func TestOnTimeShareAndMedians(t *testing.T) {
 	}
 }
 
+func TestByType(t *testing.T) {
+	tests := []struct {
+		name  string
+		facts []Fact
+		want  []TypeCount
+	}{
+		{"empty keeps all types", nil, []TypeCount{{"problem", 0, 0}, {"idea", 0, 0}, {"feedback", 0, 0}}},
+		{"counts and closed", []Fact{{Type: "problem", Status: "new"}, {Type: "problem", Status: "declined"}, {Type: "feedback", Status: "closed"}, {Type: "idea", Status: "in_progress"}},
+			[]TypeCount{{"problem", 2, 1}, {"idea", 1, 0}, {"feedback", 1, 1}}},
+		{"unknown type ignored", []Fact{{Type: "bug", Status: "new"}}, []TypeCount{{"problem", 0, 0}, {"idea", 0, 0}, {"feedback", 0, 0}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ByType(tc.facts)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %+v", got)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("got %+v want %+v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
 func f64(v float64) *float64 { return &v }
 
 func eqPtr(a, b *float64) bool {

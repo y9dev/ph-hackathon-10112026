@@ -279,4 +279,28 @@ func TestCRAnalyticsKPIs(t *testing.T) {
 	if strings.Contains(s, "p90") || !strings.Contains(s, `"first_response_on_time_share":0.5`) || !strings.Contains(s, `"median_resolution_hours":40`) {
 		t.Fatalf("summary payload: %s", s)
 	}
+	// by_type: all three types always present, period/scope aware
+	if !strings.Contains(s, `"by_type":[{"type":"problem","count":3,"closed":1},{"type":"idea","count":0,"closed":0},{"type":"feedback","count":0,"closed":0}]`) {
+		t.Fatalf("by_type: %s", s)
+	}
+	// median_resolution_hours counts requests CLOSED in the period: created on 10.11, closed on 11.11 (UTC display TZ)
+	day := func(v string) *time.Time { d, _ := time.ParseInLocation("2006-01-02", v, time.UTC); return &d }
+	closedDay, err := e.app.Insights.Service.Summary(ctx, mgr, insights.SummaryFilter{From: day("2026-11-11"), To: day("2026-11-11")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closedDay.KPIs.Total != 0 || closedDay.KPIs.MedianResolutionHours == nil || *closedDay.KPIs.MedianResolutionHours != 40 || closedDay.ByType[0].Count != 0 {
+		t.Fatalf("closed-in-period resolution: total=%d median=%v by_type=%+v", closedDay.KPIs.Total, closedDay.KPIs.MedianResolutionHours, closedDay.ByType)
+	}
+	createdDay, err := e.app.Insights.Service.Summary(ctx, mgr, insights.SummaryFilter{From: day("2026-11-10"), To: day("2026-11-10")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdDay.KPIs.Total != 3 || createdDay.KPIs.MedianResolutionHours != nil || len(createdDay.ByType) != 3 || createdDay.ByType[0].Count != 3 {
+		t.Fatalf("created-in-period: total=%d median=%v by_type=%+v", createdDay.KPIs.Total, createdDay.KPIs.MedianResolutionHours, createdDay.ByType)
+	}
+	onlyB, err := e.app.Insights.Service.Summary(ctx, mgr, insights.SummaryFilter{DepartmentID: &f.deptB})
+	if err != nil || onlyB.ByType[0].Count != 0 || onlyB.KPIs.MedianResolutionHours != nil {
+		t.Fatalf("department filter on by_type/resolution: %v %+v", err, onlyB.ByType)
+	}
 }

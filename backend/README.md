@@ -103,7 +103,9 @@ linking, an owner action).
 
 Analytics (CR5): `first_response_on_time_share` (answered by `first_response_due`, which already includes needs_info
 pause shifts, among requests with a first response), `first_response_sample`, `median_first_response_hours`,
-`median_resolution_hours` (created → closed among closed requests of the period, period = creation date). p90 removed.
+`median_resolution_hours` (created → closed of requests CLOSED in the period, i.e. `closed_at` within from..to; all
+time when no period is given), `by_type` (`{type, count, closed}` for problem/idea/feedback, always all three, same
+period = creation date, scope and department filter as the other blocks). p90 removed.
 
 ## Configuration (env or `.env`, see `.env.example`)
 

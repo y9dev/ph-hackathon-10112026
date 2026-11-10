@@ -293,9 +293,38 @@ type Bucket struct {
 	Closed  int    `json:"closed"`
 }
 
+// TypeCount is one by_type entry (all request types are always present).
+type TypeCount struct {
+	Type   string `json:"type"`
+	Count  int    `json:"count"`
+	Closed int    `json:"closed"`
+}
+
+// ByType counts facts per request type in requests.AllTypes order.
+func ByType(facts []Fact) []TypeCount {
+	out := make([]TypeCount, len(requests.AllTypes))
+	idx := map[string]int{}
+	for i, t := range requests.AllTypes {
+		out[i] = TypeCount{Type: t}
+		idx[t] = i
+	}
+	for _, x := range facts {
+		i, ok := idx[x.Type]
+		if !ok {
+			continue
+		}
+		out[i].Count++
+		if requests.Status(x.Status).Terminal() {
+			out[i].Closed++
+		}
+	}
+	return out
+}
+
 // Summary is the contract AnalyticsSummary.
 type Summary struct {
 	KPIs         KPIs               `json:"kpis"`
+	ByType       []TypeCount        `json:"by_type"`
 	ByStatus     []StatusCount      `json:"by_status"`
 	ByCategory   []CategoryStat     `json:"by_category"`
 	ByDepartment []DepartmentStat   `json:"by_department"`
@@ -402,7 +431,13 @@ func (s *Service) Summary(ctx context.Context, a authz.Actor, f SummaryFilter) (
 	cats := map[string]*CategoryStat{}
 	depts := map[string]*DepartmentStat{}
 	var catOrder, deptOrder []string
-	frHours, resHours := FirstResponseAndResolution(facts)
+	frHours, _ := FirstResponseAndResolution(facts)
+	// CR5: resolution time over requests CLOSED in the period (all time when no period is given)
+	resHours, err := s.store.ResolutionHours(ctx, scope, f.From, toExcl, f.DepartmentID)
+	if err != nil {
+		return Summary{}, err
+	}
+	res.ByType = ByType(facts)
 	reviewed, closed, withResult, auto := 0, 0, 0, 0
 	for _, x := range facts {
 		st := requests.Status(x.Status)
