@@ -104,3 +104,12 @@ Weighted = (4.5x0.25 + 4.0x0.25 + 4.0x0.20 + 3.5x0.15 + 4.0x0.15) = 1.125 + 1.00
 - DEMO_SCRIPT.md:35: "4 предложенные группы". On the shared instance after E2E runs there are 6, including 2 from test data. On a fresh seed this was not verified.
 - README.md:73-74 documents only the mock E2E (`npm run e2e`). The real-backend command (`npm run e2e:real`) is only in web/README / the config comment.
 - docs/TZ_COMPLIANCE.md was entirely ⏳ before this run. Statuses are now updated with evidence from certify-1.
+
+## Addendum: after change requests CR1–CR6 (2026-11-11)
+
+The 4.05/5 score above predates CR1–CR6 and was not re-certified by an independent QA pass. Evidence for the merged tree:
+`go vet`, `go test` (incl. telegram, anonymity, observer rules), `npm run lint`, 89 unit tests, build, mock E2E (27 passed),
+real-backend E2E on the Docker stack (23 passed, 7 skipped: screenshots and mock-only Telegram checks).
+Not verified: real Telegram token, QR scan on a phone, screen reader, contrast of new screens, fresh UX/UI audit of the token,
+Telegram and theme-dialog screens.
+Known open points: `/themes` is company-wide for managers while linking to a foreign theme returns 404; zod advisory not accepted yet.
