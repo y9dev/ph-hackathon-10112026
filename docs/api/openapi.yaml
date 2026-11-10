@@ -36,7 +36,7 @@ paths:
       responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingPreview'}}}}}
   /requests:
     get:
-      summary: List requests. scope=mine (own, any role), inbox (staff: in my scope), all (admin only; inbox scope for manager)
+      summary: "List requests. scope=mine (own NON-anonymous requests, any role; anonymous ones are never listed), inbox (staff, requests they own), all (admin and managers, every request of the company; managers get access_level observer on foreign departments)"
       parameters:
         - {name: scope, in: query, required: true, schema: {type: string, enum: [mine, inbox, all]}}
         - {name: tab, in: query, schema: {type: string, enum: [needs_action, in_progress, waiting_author, closed, all]}, description: "inbox/all only. needs_action = status new OR (open AND overdue) OR decision awaiting staff; in_progress = in_review|decision|in_progress; waiting_author = needs_info; closed = terminal"}
@@ -45,8 +45,11 @@ paths:
         - {name: department_id, in: query, schema: {type: integer}}
         - {name: assignee, in: query, schema: {type: string, enum: [me, none]}}
         - {name: overdue, in: query, schema: {type: boolean}}
+        - {name: priority, in: query, schema: {$ref: '#/components/schemas/Priority'}}
+        - {name: request_type, in: query, schema: {$ref: '#/components/schemas/RequestType'}}
+        - {name: mine_scope, in: query, schema: {type: boolean}, description: "manager with scope=all: true limits to own departments/assigned (owner access only)"}
         - {name: q, in: query, schema: {type: string}, description: "substring over number,title,body,result_text"}
-        - {name: sort, in: query, schema: {type: string, enum: [deadline, newest, oldest, updated], default: deadline}}
+        - {name: sort, in: query, schema: {type: string, enum: [deadline, newest, oldest, updated, priority], default: deadline}}
         - {name: page, in: query, schema: {type: integer, default: 1}}
         - {name: page_size, in: query, schema: {type: integer, default: 20, maximum: 100}}
       responses: {"200": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/RequestList'}}}}}
@@ -116,6 +119,32 @@ paths:
     get:
       summary: Confirmed themes with counts. Staff only.
       responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Theme'}}}}}}}}
+  /anonymous/lookup:
+    post:
+      security: []
+      summary: Author view of an anonymous request by its secret token (no session needed, rate limited per IP). 404 for wrong token.
+      requestBody: {content: {application/json: {schema: {type: object, required: [token], properties: {token: {type: string}}}}}}
+      responses: {"200": {description: "ok (author perspective, author.is_me=true, no internal notes)", content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}, "404": {description: unknown token}, "429": {description: throttled}}
+  /anonymous/comments:
+    post:
+      security: []
+      summary: "Anonymous author writes to the request by token. kind is chosen by the server (answer when status needs_info, else comment). Closed requests: 409."
+      requestBody: {content: {application/json: {schema: {type: object, required: [token, body], properties: {token: {type: string}, body: {type: string, minLength: 1, maxLength: 4000}}}}}}
+      responses: {"201": {description: created, content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}}
+  /anonymous/attachments/{id}:
+    get:
+      security: []
+      summary: Download an attachment of an anonymous request; token in header X-Anonymous-Token.
+      parameters: [{$ref: '#/components/parameters/id'}, {name: X-Anonymous-Token, in: header, required: true, schema: {type: string}}]
+      responses: {"200": {description: file}, "404": {description: not found}}
+  /telegram/status:
+    get:
+      summary: Telegram bot availability and link state of the current user
+      responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {enabled: {type: boolean}, bot_url: {type: string, nullable: true}, bot_username: {type: string, nullable: true}, linked: {type: boolean}, linked_at: {type: string, format: date-time, nullable: true}, telegram_username: {type: string, nullable: true}}}}}}}
+  /telegram/link-code:
+    get:
+      summary: "Current short link code of the user (rotates every 20 s, kept in a server-side cache). 404 when the bot is disabled, 409 when already linked."
+      responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {code: {type: string, example: "K7M2QX"}, expires_in_seconds: {type: integer}, period_seconds: {type: integer, example: 20}, bot_url: {type: string}}}}}}, "404": {description: bot disabled}, "409": {description: already linked}}
   /admin/categories:
     get: {summary: "List (admin)", responses: {"200": {description: ok, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Category'}}}}}}}}}
     post: {summary: "Create (admin)", requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/CategoryInput'}}}}, responses: {"201": {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/Category'}}}}}}
@@ -139,7 +168,9 @@ components:
   parameters: {id: {name: id, in: path, required: true, schema: {type: integer}}}
   schemas:
     Role: {type: string, enum: [employee, manager, admin]}
-    RequestType: {type: string, enum: [problem, idea]}
+    RequestType: {type: string, enum: [problem, idea, feedback], description: "feedback = Положительный отзыв (dataset type)"}
+    Priority: {type: string, enum: [low, medium, high], description: "Низкий / Средний / Высокий; default medium"}
+    AccessLevel: {type: string, enum: [owner, observer, author], description: "owner = staff responsible for the request's department/assignee or admin (full actions); observer = manager of ANOTHER department (read all, may only add comment|internal notes); author = the author"}
     Status: {description: "Customer lifecycle stages: development = new|in_review|needs_info; decision = decision; implementation = in_progress; done = implemented|declined|duplicate|closed (Закрыто: closed without implementation, e.g. answered or resolved otherwise; needs result_text)", type: string, enum: [new, in_review, needs_info, decision, in_progress, implemented, declined, duplicate, closed]}
     User: {type: object, properties: {id: {type: integer}, name: {type: string}, email: {type: string}, role: {$ref: '#/components/schemas/Role'}, department_id: {type: integer, nullable: true}, department_name: {type: string, nullable: true}, led_department_ids: {type: array, items: {type: integer}}}}
     Department: {type: object, properties: {id: {type: integer}, name: {type: string}, head_user_id: {type: integer, nullable: true}, head_name: {type: string, nullable: true}}}
@@ -152,9 +183,10 @@ components:
         departments: {type: array, items: {$ref: '#/components/schemas/Department'}}
         statuses: {type: array, items: {type: object, properties: {id: {$ref: '#/components/schemas/Status'}, label: {type: string}, terminal: {type: boolean}}}}
         limits: {type: object, properties: {max_files: {type: integer}, max_file_mb: {type: integer}, max_total_mb: {type: integer}, allowed_extensions: {type: array, items: {type: string}}, title_max: {type: integer}, body_max: {type: integer}}}
+        features: {type: object, properties: {telegram: {type: boolean, description: "true when the Telegram bot is running (TELEGRAM_BOT_TOKEN set)"}, priority: {type: boolean}}}
         assignable_users: {type: array, description: "staff only, empty for employees", items: {type: object, properties: {id: {type: integer}, name: {type: string}, department_id: {type: integer}}}}
     RoutingPreview: {type: object, properties: {routed: {type: boolean}, department: {$ref: '#/components/schemas/Department'}, assignee_name: {type: string, nullable: true}, first_response_hours: {type: integer}, resolution_hours: {type: integer}, first_response_due: {type: string, format: date-time}, similar_count: {type: integer, description: "aggregate only, number of earlier requests in same category"}}}
-    CreateRequest: {type: object, required: [type, category_id, title, body], properties: {type: {$ref: '#/components/schemas/RequestType'}, category_id: {type: integer}, title: {type: string, minLength: 5, maxLength: 140}, body: {type: string, minLength: 20, maxLength: 4000}, proposed_solution: {type: string, maxLength: 2000}, is_anonymous: {type: boolean}}}
+    CreateRequest: {type: object, required: [type, category_id, title, body], properties: {type: {$ref: '#/components/schemas/RequestType'}, category_id: {type: integer}, title: {type: string, minLength: 5, maxLength: 140}, body: {type: string, minLength: 20, maxLength: 4000}, proposed_solution: {type: string, maxLength: 2000}, is_anonymous: {type: boolean, description: "true => NO author link is stored anywhere in the DB; response carries anonymous_token once"}, priority: {$ref: '#/components/schemas/Priority'}}}
     PersonView:
       type: object
       description: Author/actor view produced by the single AuthorView mapper
@@ -181,6 +213,8 @@ components:
         department: {type: object, nullable: true, properties: {id: {type: integer}, name: {type: string}}}
         assignee: {type: object, nullable: true, properties: {id: {type: integer}, name: {type: string}}}
         routing_source: {type: string, enum: [rule, manual, unrouted]}
+        priority: {$ref: '#/components/schemas/Priority'}
+        access_level: {$ref: '#/components/schemas/AccessLevel'}
         sla: {$ref: '#/components/schemas/SlaState'}
         comments_count: {type: integer}
         awaiting_author: {type: boolean}
@@ -211,6 +245,7 @@ components:
         - $ref: '#/components/schemas/RequestSummary'
         - type: object
           properties:
+            anonymous_token: {type: string, nullable: true, description: "ONLY in the 201 response of POST /requests with is_anonymous=true; shown once; DB keeps only its SHA-256"}
             body: {type: string}
             proposed_solution: {type: string, nullable: true}
             result_text: {type: string, nullable: true}
@@ -237,8 +272,10 @@ components:
           properties:
             total: {type: integer}
             reviewed_share: {type: number, description: "0..1, requests with first_responded_at / total"}
-            median_first_response_hours: {type: number, nullable: true}
-            p90_first_response_hours: {type: number, nullable: true}
+            median_first_response_hours: {type: number, nullable: true, description: "typical time to first response in hours (UI shows it as secondary text)"}
+            first_response_on_time_share: {type: number, nullable: true, description: "0..1, requests answered before first_response_due / requests that have a first response"}
+            first_response_sample: {type: integer, description: "requests with a first response in the period"}
+            median_resolution_hours: {type: number, nullable: true, description: "median creation->closed time of requests closed in the period"}
             outcome_share: {type: number, description: "0..1, closed requests having result_text / closed"}
             implemented_count: {type: integer}
             overdue_count: {type: integer}
