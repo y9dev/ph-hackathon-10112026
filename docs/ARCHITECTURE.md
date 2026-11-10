@@ -123,5 +123,12 @@ Added vs §3: `users.title`, `requests.paused_at` (SLA pause), `counters` (reque
 - **R8 Themes (F9):** presented as "suggested groups" with similarity score; a manager confirms. Seed has deliberate clusters.
 - **R9 Docs (F10):** add `ROADMAP.md`, `DEMO_SCRIPT.md` at the end.
 
+## 12. Sponsor input (video, 2026-11-10) — R10, overrides R4 status list
+The customer named three lifecycle stages: **Разработка → Принятие решения → Реализация**, with the responsible person reporting progress (FR-07, FR-08 Critical). Statuses are therefore: `new`, `in_review` (stage Разработка), `needs_info`, `decision` (stage Принятие решения), `in_progress` (stage Реализация), terminal `implemented`, `declined`, `duplicate`. `accepted` is removed (migration: existing `accepted` → `in_progress`).
+Transitions: `new→{in_review,needs_info,decision,declined,duplicate}`; `in_review→{needs_info,decision,declined,duplicate}`; `needs_info→in_review` (author answer); `decision→{in_progress,in_review,declined}` (`in_review` = return for rework); `in_progress→{implemented,declined,decision}`. Terminal statuses require `result_text`.
+**Added on user request: status `closed` ("Закрыто")**, terminal, for requests resolved without implementation (answered, resolved otherwise, no longer relevant). Reachable from every non-terminal status (`new`, `in_review`, `needs_info`, `decision`, `in_progress`), requires `result_text`, stage "done". The list tab `closed` (terminal group) is unaffected; the status label is "Закрыто".
+New comment kind **`report`** (progress report): staff only, allowed while status ∈ {in_review, decision, in_progress}, visible to the author, notifies the author, counts as first response, rendered in the timeline as "Отчёт о ходе". UI shows a 3-stage stepper (Разработка · Принятие решения · Реализация) derived from status on the request card and in lists.
+Manager visibility: customer sketch has "Manager sees all company requests"; in our model the **admin** role is that company-wide manager; department heads see their scope (open question for the customer).
+
 ## 10. Decisions (short ADRs)
 - D1 SQLite first, portable SQL, store interfaces. · D2 Server-side sessions. · D3 Modular monolith with event bus, no network boundaries. · D4 Similarity = Jaccard over normalized tokens (RU stemming-lite: lowercase, strip punctuation, stop-words, 5-char prefix), no ML; threshold tuned on seed data. · D5 Anonymity by contract, tested. · D6 SPA embedded in Go binary. · D7 UI strings centralized (`shared/i18n/ru.ts`) for future languages.

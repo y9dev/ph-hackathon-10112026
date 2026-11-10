@@ -15,6 +15,7 @@ Nothing here is required for the MVP; the MVP ships the seams (ports, events, ou
 | 3 | **Bitrix24** — tasks | Turn accepted improvements into tracked work | Out: title, link, deadline, assignee. In: task status → request status | `TaskSink` adapter: `tasks.task.add` on `request.accepted`; webhook/poll back for completion | Which project/group? Who owns created tasks? |
 | 4 | **Bitrix24** — notifications | Reach people where they already work | Out: notification text + deep link | `Notifier` adapter: `im.notify` / `im.message.add` | Bot or personal notification? |
 | 5 | **E-mail (SMTP)** | Notify when away from Bitrix24 | Out: same events | `Notifier` adapter, digest option | Corporate SMTP relay? |
+| 5a | **Telegram bot** | Notify and let employees answer clarifications where they already chat (customer context: oral/chat culture) | Out: notification + deep link; In (later): reply to a `question` | `Notifier` adapter via Bot API; account linking by one-time code from profile page; no request text beyond title in the message | Is Telegram allowed for work data? Corporate bot owner? |
 | 6 | **1C УТ** | Link equipment/product/supplier to a problem (e.g. recurring defect on item X) | In: nomenclature/counterparty references (read-only) | `ReferenceProvider` via 1C HTTP service/OData | Which entities matter? Who may expose them? |
 | 7 | **BI / data warehouse** | Deeper analytics | Out: anonymized request facts | Read-only export endpoint / CSV (built) → scheduled ETL | Existing BI tool? |
 

@@ -7,7 +7,7 @@ backend-run:
 	cd $(BACKEND) && go run ./cmd/server
 
 backend-seed:
-	cd $(BACKEND) && go run ./cmd/server --seed-only
+	cd $(BACKEND) && DEMO_MODE=true go run ./cmd/server --seed-only
 
 backend-demo:
 	cd $(BACKEND) && DEMO_MODE=true go run ./cmd/server --seed
@@ -28,3 +28,28 @@ backend-fmt:
 	cd $(BACKEND) && gofmt -l -w .
 
 backend-check: backend-fmt backend-vet backend-test
+
+# Web targets
+.PHONY: web-install web-build web-dev web-mock web-test web-e2e build check
+web-install:
+	cd web && npm ci
+
+web-build:
+	cd web && npm ci && npm run build
+
+web-dev:
+	cd web && npm run dev
+
+web-mock:
+	cd web && npm run dev:mock
+
+web-test:
+	cd web && npm run lint && npm test
+
+web-e2e:
+	cd web && npm run e2e
+
+# Full single-binary build (SPA embedded into the Go binary)
+build: web-build backend-build
+
+check: backend-check web-test

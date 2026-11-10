@@ -39,7 +39,7 @@ paths:
       summary: List requests. scope=mine (own, any role), inbox (staff: in my scope), all (admin only; inbox scope for manager)
       parameters:
         - {name: scope, in: query, required: true, schema: {type: string, enum: [mine, inbox, all]}}
-        - {name: tab, in: query, schema: {type: string, enum: [needs_action, in_progress, waiting_author, closed, all]}, description: "inbox/all only. needs_action = status new OR (in_review/accepted AND overdue); in_progress = in_review|accepted; waiting_author = needs_info; closed = terminal"}
+        - {name: tab, in: query, schema: {type: string, enum: [needs_action, in_progress, waiting_author, closed, all]}, description: "inbox/all only. needs_action = status new OR (open AND overdue) OR decision awaiting staff; in_progress = in_review|decision|in_progress; waiting_author = needs_info; closed = terminal"}
         - {name: status, in: query, schema: {$ref: '#/components/schemas/Status'}}
         - {name: category_id, in: query, schema: {type: integer}}
         - {name: department_id, in: query, schema: {type: integer}}
@@ -80,9 +80,9 @@ paths:
   /requests/{id}/comments:
     post:
       summary: |
-        Add comment. kinds: comment (staff or author), question (staff; sets status needs_info), answer (author only, only when needs_info; sets status in_review), internal (staff only).
+        Add comment. kinds: comment (staff or author), question (staff; sets status needs_info), answer (author only, only when needs_info; sets status in_review), internal (staff only), report (staff only; progress report on solution work, allowed in in_review|decision|in_progress; visible to the author; notifies the author).
       parameters: [{$ref: '#/components/parameters/id'}]
-      requestBody: {content: {application/json: {schema: {type: object, required: [kind, body], properties: {kind: {type: string, enum: [comment, question, answer, internal]}, body: {type: string, minLength: 1, maxLength: 4000}}}}}}
+      requestBody: {content: {application/json: {schema: {type: object, required: [kind, body], properties: {kind: {type: string, enum: [comment, question, answer, internal, report]}, body: {type: string, minLength: 1, maxLength: 4000}}}}}}
       responses: {"201": {description: created, content: {application/json: {schema: {$ref: '#/components/schemas/RequestDetail'}}}}}
   /requests/{id}/theme:
     post:
@@ -140,7 +140,7 @@ components:
   schemas:
     Role: {type: string, enum: [employee, manager, admin]}
     RequestType: {type: string, enum: [problem, idea]}
-    Status: {type: string, enum: [new, in_review, needs_info, accepted, implemented, declined, duplicate]}
+    Status: {description: "Customer lifecycle stages: development = new|in_review|needs_info; decision = decision; implementation = in_progress; done = implemented|declined|duplicate|closed (Закрыто: closed without implementation, e.g. answered or resolved otherwise; needs result_text)", type: string, enum: [new, in_review, needs_info, decision, in_progress, implemented, declined, duplicate, closed]}
     User: {type: object, properties: {id: {type: integer}, name: {type: string}, email: {type: string}, role: {$ref: '#/components/schemas/Role'}, department_id: {type: integer, nullable: true}, department_name: {type: string, nullable: true}, led_department_ids: {type: array, items: {type: integer}}}}
     Department: {type: object, properties: {id: {type: integer}, name: {type: string}, head_user_id: {type: integer, nullable: true}, head_name: {type: string, nullable: true}}}
     Category: {type: object, properties: {id: {type: integer}, name: {type: string}, description: {type: string}, icon: {type: string, description: "lucide icon name"}, sort: {type: integer}, active: {type: boolean}}}
@@ -202,7 +202,7 @@ components:
         id: {type: string, example: "e-12"}
         at: {type: string, format: date-time}
         actor: {$ref: '#/components/schemas/PersonView'}
-        kind: {type: string, enum: [created, routed, assigned, status_changed, comment, question, answer, internal, theme_linked, overdue]}
+        kind: {type: string, enum: [created, routed, assigned, status_changed, comment, question, answer, internal, report, theme_linked, overdue]}
         from_status: {$ref: '#/components/schemas/Status'}
         to_status: {$ref: '#/components/schemas/Status'}
         text: {type: string, nullable: true, description: "comment body, result text or system text (Russian)"}
@@ -219,7 +219,7 @@ components:
             attachments: {type: array, items: {$ref: '#/components/schemas/Attachment'}}
             timeline: {type: array, items: {$ref: '#/components/schemas/TimelineItem'}}
             allowed_statuses: {type: array, description: "transitions the current user may perform now", items: {$ref: '#/components/schemas/Status'}}
-            allowed_comment_kinds: {type: array, items: {type: string, enum: [comment, question, answer, internal]}}
+            allowed_comment_kinds: {type: array, items: {type: string, enum: [comment, question, answer, internal, report]}}
             can_assign: {type: boolean}
             similar:
               type: object
