@@ -73,6 +73,12 @@ export const ru = {
     answer: 'Ответ на уточнение',
     internal: 'Внутренняя заметка',
   } satisfies Record<CommentKind, string>,
+  commentKindsShort: {
+    comment: 'Комментарий',
+    question: 'Вопрос',
+    answer: 'Ответ',
+    internal: 'Заметка',
+  } satisfies Record<CommentKind, string>,
   commentKindHints: {
     comment: 'Увидят автор и ответственные',
     question: 'Статус сменится на «Нужно уточнение», срок встанет на паузу',

@@ -93,7 +93,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail
           }}
           options={kinds.map((k) => {
             const Icon = ICON[k];
-            return { value: k, label: ru.commentKinds[k], icon: <Icon className="h-4 w-4" aria-hidden="true" /> };
+            return { value: k, label: ru.commentKindsShort[k], icon: <Icon className="h-4 w-4 shrink-0 max-xl:hidden" aria-hidden="true" /> };
           })}
         />
       )}

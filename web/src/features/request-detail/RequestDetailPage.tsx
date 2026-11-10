@@ -14,7 +14,6 @@ import {
   Search,
   ThumbsUp,
   EyeOff,
-  Lock,
 } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
 import { qk } from '@/shared/api/queries';
@@ -337,12 +336,6 @@ function StaffActions({ r }: { r: RequestDetail }) {
         <Button variant="ghost" className="w-full justify-start" onClick={() => setTheme(true)} icon={<Tags className="h-4 w-4" aria-hidden="true" />}>
           {r.theme ? `${ru.detail.theme}: ${r.theme.title}` : ru.detail.themeAdd}
         </Button>
-        {r.allowed_comment_kinds.includes('internal') && (
-          <p className="mt-2 flex items-start gap-2 text-xs text-muted">
-            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            {ru.commentKindHints.internal}
-          </p>
-        )}
       </div>
       {closing && <CloseDialog key={closing} request={r} status={closing} open onOpenChange={(o) => !o && setClosing(null)} />}
       {question && <QuestionDialog request={r} open onOpenChange={setQuestion} />}

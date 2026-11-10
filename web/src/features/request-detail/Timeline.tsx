@@ -80,7 +80,7 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
               )}
             </span>
             <div className="min-w-0 flex-1 pt-1">
-              <p className="sr-only">{ru.timeline[item.kind]}.</p>
+              {isMessage && <p className="sr-only">{internal ? `${ru.timeline.internal}, ${ru.timeline.internalBadge}` : ru.timeline[item.kind]}.</p>}
               <ActorLine item={item} />
               {isMessage ? (
                 <div

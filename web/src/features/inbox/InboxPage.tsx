@@ -271,7 +271,7 @@ function ToggleChip({ pressed, onClick, children }: { pressed: boolean; onClick:
 function RequestTable({ items }: { items: RequestSummary[] }) {
   const navigate = useNavigate();
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm max-md:hidden">
+    <div className="overflow-clip rounded-xl border border-border bg-surface shadow-sm max-md:hidden">
       <table className="w-full table-fixed border-collapse text-left">
         <caption className="sr-only">{ru.inbox.caption}</caption>
         <thead className="sticky top-16 z-[5] bg-surface-2/95 backdrop-blur">
@@ -288,7 +288,7 @@ function RequestTable({ items }: { items: RequestSummary[] }) {
             <th scope="col" className="w-48 px-4 py-3 font-medium max-xl:hidden">
               {ru.inbox.colDept}
             </th>
-            <th scope="col" className="w-48 px-4 py-3 font-medium">
+            <th scope="col" className="w-60 px-4 py-3 font-medium">
               {ru.inbox.colSla}
             </th>
           </tr>
