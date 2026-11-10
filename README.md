@@ -12,13 +12,35 @@ docker compose up --build
 ```
 Откройте http://localhost:8080. Данные синтетические, загружаются автоматически при первом запуске.
 
-### Вариант 2. Go + Node
-Нужны Go 1.26+ и Node 22+.
+### Вариант 2. Go + npm
+Нужны Go 1.26+ и Node.js 22+ (вместе с npm). Установка для Windows:
+- Go: https://go.dev/dl/ (установщик `.msi` для Windows)
+- Node.js: https://nodejs.org/en/download (установщик `.msi` для Windows)
+
+Проверка: `go version` и `node -v`.
+
+1. Собрать интерфейс (результат попадёт в `backend/internal/webui/dist`, откуда его раздаёт сервер):
 ```bash
-make web-build       # собрать интерфейс в backend/internal/webui/dist
-make backend-demo    # запустить сервер с демо-данными на :8080
+cd web
+npm ci
+npm run build
 ```
-Разработка: `make backend-demo` в одном терминале, `cd web && npm run dev` в другом (http://localhost:5173, прокси на :8080). Интерфейс без бэкенда: `cd web && npm run dev:mock`.
+2. Запустить сервер с демо-данными на :8080.
+
+PowerShell (Windows):
+```powershell
+cd backend
+$env:DEMO_MODE = "true"
+go run ./cmd/server --seed
+```
+bash (Linux, macOS, Git Bash):
+```bash
+cd backend
+DEMO_MODE=true go run ./cmd/server --seed
+```
+Откройте http://localhost:8080.
+
+Разработка: сервер из шага 2 в одном терминале, `cd web && npm run dev` в другом (http://localhost:5173, прокси на :8080). Интерфейс без бэкенда: `cd web && npm run dev:mock`. Тот же запуск короче через `make`: `make web-build`, `make backend-demo`.
 
 ## Демо-аккаунты
 Пароль для всех: `Demo1234!`. Страница входа обычная (только форма); аккаунты вводятся вручную. Проверка анонимного обращения: `/anonymous` или ссылка «Мои обращения».
