@@ -1,0 +1,156 @@
+/* Design tokens — docs/UX_SPECIFICATION.md §5. Light is default; dark via
+   prefers-color-scheme unless the user picked a theme (html[data-theme]). */
+:root {
+  color-scheme: light;
+  --bg: #f6f8f9;
+  --surface: #ffffff;
+  --surface-2: #eef2f4;
+  --border: #d9e0e4;
+  --border-strong: #b7c3ca;
+  --text: #16232b;
+  --text-muted: #52636e;
+
+  --brand: #0b7a75;
+  --brand-hover: #096762;
+  --brand-soft: #ddf3f1;
+  --on-brand: #ffffff;
+
+  --info: #2457c5;
+  --info-soft: #e6edfb;
+  --success: #1b7f43;
+  --success-soft: #e3f3e9;
+  --warning: #b45309;
+  --warning-soft: #fdf0e1;
+  --danger: #b42318;
+  --danger-soft: #fce8e6;
+  --danger-hover: #951d14;
+
+  --status-new: #2457c5;
+  --status-new-soft: #e6edfb;
+  --status-in-review: #6d3fc4;
+  --status-in-review-soft: #efe8fb;
+  --status-needs-info: #b45309;
+  --status-needs-info-soft: #fdf0e1;
+  --status-accepted: #0b7a75;
+  --status-accepted-soft: #ddf3f1;
+  --status-implemented: #1b7f43;
+  --status-implemented-soft: #e3f3e9;
+  --status-declined: #52636e;
+  --status-declined-soft: #eef2f4;
+  --status-duplicate: #52636e;
+  --status-duplicate-soft: #eef2f4;
+
+  --chart-1: #0b7a75;
+  --chart-2: #2457c5;
+  --chart-track: #eef2f4;
+
+  --focus: #0b7a75;
+  --overlay: rgb(16 35 43 / 0.45);
+  --shadow-sm: 0 1px 2px rgb(16 35 43 / 0.08);
+  --shadow-md: 0 4px 16px rgb(16 35 43 / 0.1);
+  --shadow-lg: 0 12px 32px rgb(16 35 43 / 0.16);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e1619;
+  --surface: #151f24;
+  --surface-2: #1c292f;
+  --border: #2b3b43;
+  --border-strong: #3d525c;
+  --text: #e6eef1;
+  --text-muted: #9fb1ba;
+
+  --brand: #34c5bc;
+  --brand-hover: #5ad3cb;
+  --brand-soft: #123b3a;
+  --on-brand: #06201f;
+
+  --info: #86a9f5;
+  --info-soft: #17274a;
+  --success: #62cc8d;
+  --success-soft: #11301f;
+  --warning: #f0a85a;
+  --warning-soft: #3a2610;
+  --danger: #f2877d;
+  --danger-soft: #3d1714;
+  --danger-hover: #f6a39b;
+
+  --status-new: #86a9f5;
+  --status-new-soft: #17274a;
+  --status-in-review: #b9a2f2;
+  --status-in-review-soft: #2a1f45;
+  --status-needs-info: #f0a85a;
+  --status-needs-info-soft: #3a2610;
+  --status-accepted: #34c5bc;
+  --status-accepted-soft: #123b3a;
+  --status-implemented: #62cc8d;
+  --status-implemented-soft: #11301f;
+  --status-declined: #9fb1ba;
+  --status-declined-soft: #1c292f;
+  --status-duplicate: #9fb1ba;
+  --status-duplicate-soft: #1c292f;
+
+  --chart-1: #34c5bc;
+  --chart-2: #86a9f5;
+  --chart-track: #1c292f;
+
+  --focus: #34c5bc;
+  --overlay: rgb(0 0 0 / 0.6);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 16px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0e1619;
+    --surface: #151f24;
+    --surface-2: #1c292f;
+    --border: #2b3b43;
+    --border-strong: #3d525c;
+    --text: #e6eef1;
+    --text-muted: #9fb1ba;
+
+    --brand: #34c5bc;
+    --brand-hover: #5ad3cb;
+    --brand-soft: #123b3a;
+    --on-brand: #06201f;
+
+    --info: #86a9f5;
+    --info-soft: #17274a;
+    --success: #62cc8d;
+    --success-soft: #11301f;
+    --warning: #f0a85a;
+    --warning-soft: #3a2610;
+    --danger: #f2877d;
+    --danger-soft: #3d1714;
+    --danger-hover: #f6a39b;
+
+    --status-new: #86a9f5;
+    --status-new-soft: #17274a;
+    --status-in-review: #b9a2f2;
+    --status-in-review-soft: #2a1f45;
+    --status-needs-info: #f0a85a;
+    --status-needs-info-soft: #3a2610;
+    --status-accepted: #34c5bc;
+    --status-accepted-soft: #123b3a;
+    --status-implemented: #62cc8d;
+    --status-implemented-soft: #11301f;
+    --status-declined: #9fb1ba;
+    --status-declined-soft: #1c292f;
+    --status-duplicate: #9fb1ba;
+    --status-duplicate-soft: #1c292f;
+
+    --chart-1: #34c5bc;
+    --chart-2: #86a9f5;
+    --chart-track: #1c292f;
+
+    --focus: #34c5bc;
+    --overlay: rgb(0 0 0 / 0.6);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 16px rgb(0 0 0 / 0.45);
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.55);
+  }
+}
