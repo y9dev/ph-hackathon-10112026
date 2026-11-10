@@ -10,6 +10,7 @@ import { cn } from '@/shared/lib/cn';
 import { ru } from '@/shared/i18n/ru';
 import { Button, ButtonLink, EmptyState, ErrorState, LoadingBlock, PageHeader, useDocumentTitle } from '@/shared/ui';
 import { RequestCard, RequestCardSkeleton } from '@/shared/ui/RequestCard';
+import { DeviceAnonSection } from '@/features/anonymous/DeviceAnonSection';
 
 export type MineFilter = 'all' | 'open' | 'answer' | 'closed';
 const FILTERS: MineFilter[] = ['all', 'open', 'answer', 'closed'];
@@ -137,6 +138,7 @@ export default function MyRequestsPage() {
           ))}
         </ul>
       )}
+      <DeviceAnonSection />
     </div>
   );
 }

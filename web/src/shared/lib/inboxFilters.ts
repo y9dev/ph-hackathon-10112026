@@ -1,4 +1,4 @@
-import type { InboxTab, ListParams, ListScope, ListSort, Status } from '@/shared/api/types';
+import type { InboxTab, ListParams, ListScope, ListSort, Priority, RequestType, Status } from '@/shared/api/types';
 import { STATUSES } from './status';
 
 export interface InboxFilters {
@@ -8,6 +8,12 @@ export interface InboxFilters {
   department_id?: number;
   assignee?: 'me' | 'none';
   overdue?: boolean;
+  priority?: Priority;
+  type?: RequestType;
+  /** Managers (CR6): 'all' = every request of the company instead of the owned inbox. */
+  view?: 'all';
+  /** With view=all: only own departments / assigned requests (mine_scope=true). */
+  mine?: boolean;
   q?: string;
   sort: ListSort;
   page: number;
@@ -17,7 +23,9 @@ export const DEFAULT_FILTERS: InboxFilters = { tab: 'needs_action', sort: 'deadl
 export const PAGE_SIZE = 20;
 
 const TABS: InboxTab[] = ['needs_action', 'in_progress', 'waiting_author', 'closed', 'all'];
-const SORTS: ListSort[] = ['deadline', 'newest', 'oldest', 'updated'];
+const SORTS: ListSort[] = ['deadline', 'priority', 'newest', 'oldest', 'updated'];
+const PRIORITIES: Priority[] = ['low', 'medium', 'high'];
+const TYPES: RequestType[] = ['problem', 'idea', 'feedback'];
 
 function posInt(v: string | null): number | undefined {
   if (!v) return undefined;
@@ -32,6 +40,8 @@ export function filtersFromSearch(sp: URLSearchParams): InboxFilters {
   const status = sp.get('status') as Status | null;
   const assignee = sp.get('assignee');
   const q = sp.get('q')?.trim();
+  const priority = sp.get('priority') as Priority | null;
+  const type = sp.get('type') as RequestType | null;
   return {
     tab: tab && TABS.includes(tab) ? tab : DEFAULT_FILTERS.tab,
     sort: sort && SORTS.includes(sort) ? sort : DEFAULT_FILTERS.sort,
@@ -41,6 +51,10 @@ export function filtersFromSearch(sp: URLSearchParams): InboxFilters {
     department_id: posInt(sp.get('department')),
     assignee: assignee === 'me' || assignee === 'none' ? assignee : undefined,
     overdue: sp.get('overdue') === '1' ? true : undefined,
+    priority: priority && PRIORITIES.includes(priority) ? priority : undefined,
+    type: type && TYPES.includes(type) ? type : undefined,
+    view: sp.get('view') === 'all' ? 'all' : undefined,
+    mine: sp.get('view') === 'all' && sp.get('mine') === '1' ? true : undefined,
     q: q ? q : undefined,
   };
 }
@@ -48,12 +62,16 @@ export function filtersFromSearch(sp: URLSearchParams): InboxFilters {
 /** Filters → URL query. Defaults are omitted to keep URLs short and shareable. */
 export function filtersToSearch(f: InboxFilters): URLSearchParams {
   const sp = new URLSearchParams();
+  if (f.view) sp.set('view', f.view);
+  if (f.view && f.mine) sp.set('mine', '1');
   if (f.tab !== DEFAULT_FILTERS.tab) sp.set('tab', f.tab);
   if (f.status) sp.set('status', f.status);
   if (f.category_id) sp.set('category', String(f.category_id));
   if (f.department_id) sp.set('department', String(f.department_id));
   if (f.assignee) sp.set('assignee', f.assignee);
   if (f.overdue) sp.set('overdue', '1');
+  if (f.priority) sp.set('priority', f.priority);
+  if (f.type) sp.set('type', f.type);
   if (f.q) sp.set('q', f.q);
   if (f.sort !== DEFAULT_FILTERS.sort) sp.set('sort', f.sort);
   if (f.page > 1) sp.set('page', String(f.page));
@@ -69,6 +87,9 @@ export function filtersToParams(f: InboxFilters, scope: ListScope): ListParams {
     department_id: f.department_id,
     assignee: f.assignee,
     overdue: f.overdue,
+    priority: f.priority,
+    request_type: f.type,
+    mine_scope: scope === 'all' && f.mine ? true : undefined,
     q: f.q,
     sort: f.sort,
     page: f.page,
@@ -78,12 +99,13 @@ export function filtersToParams(f: InboxFilters, scope: ListScope): ListParams {
 
 /** Any filter narrowing the list beyond the tab. */
 export function hasActiveFilters(f: InboxFilters): boolean {
-  return Boolean(f.status || f.category_id || f.department_id || f.assignee || f.overdue || f.q);
+  return Boolean(f.status || f.category_id || f.department_id || f.assignee || f.overdue || f.priority || f.type || f.q);
 }
 
 /** Change one or more filters; anything other than page resets pagination. */
 export function patchFilters(f: InboxFilters, patch: Partial<InboxFilters>): InboxFilters {
   const next = { ...f, ...patch };
   if (!('page' in patch)) next.page = 1;
+  if (!next.view) next.mine = undefined;
   return next;
 }

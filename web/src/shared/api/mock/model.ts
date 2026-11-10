@@ -1,7 +1,7 @@
 // Internal (server-side) model used by the in-browser mock. Mirrors the backend
-// tables, NOT the API DTOs: e.g. requests keep author_id, which the API never exposes
-// for anonymous requests to non-authors.
-import type { CommentKind, RequestType, Role, RoutingSource, Status, TimelineKind } from '../types';
+// tables, NOT the API DTOs. CR2: anonymous requests store NO author (author_id null);
+// author-side rows are marked by_author and the token is kept only as its canonical hash stand-in.
+import type { CommentKind, Priority, RequestType, Role, RoutingSource, Status, TimelineKind } from '../types';
 
 export interface MUser {
   id: number;
@@ -50,8 +50,12 @@ export interface MRequest {
   title: string;
   body: string;
   proposed_solution: string | null;
-  author_id: number;
+  /** null for anonymous requests (CR2: no author link anywhere). */
+  author_id: number | null;
   is_anonymous: boolean;
+  /** Canonical anonymous token (the backend stores its SHA-256; the mock keeps the canonical form). */
+  anon_token: string | null;
+  priority: Priority;
   department_id: number | null;
   assignee_id: number | null;
   status: Status;
@@ -71,7 +75,9 @@ export interface MRequest {
 export interface MComment {
   id: number;
   request_id: number;
-  author_id: number;
+  /** null for comments written by an anonymous author (by_author = true). */
+  author_id: number | null;
+  by_author?: boolean;
   kind: CommentKind;
   body: string;
   created_at: string;
@@ -80,6 +86,7 @@ export interface MEvent {
   id: number;
   request_id: number;
   actor_id: number | null;
+  by_author?: boolean;
   kind: Exclude<TimelineKind, 'comment' | 'question' | 'answer' | 'internal' | 'report'>;
   from_status?: Status;
   to_status?: Status;
@@ -114,6 +121,9 @@ export interface MockDb {
   events: MEvent[];
   notifications: MNotification[];
   themes: MTheme[];
+  /** CR4: Telegram links per user (mock of telegram_links). */
+  telegramLinks: Record<number, { linked_at: string; username: string }>;
+  telegramEnabled: boolean;
   sessionUserId: number | null;
   failedLogins: number;
   numberCounter: number;

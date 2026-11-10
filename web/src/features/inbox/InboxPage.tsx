@@ -1,10 +1,10 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Download, Filter, Inbox as InboxIcon, RotateCcw, Search, X, AlarmClock, EyeOff } from 'lucide-react';
+import { Download, Filter, Inbox as InboxIcon, RotateCcw, Search, X, AlarmClock, EyeOff, Eye } from 'lucide-react';
 import { api } from '@/shared/api/client';
 import { qk, useMeta } from '@/shared/api/queries';
-import type { InboxTab, ListSort, RequestSummary, Status } from '@/shared/api/types';
+import type { InboxTab, ListSort, Priority, RequestSummary, RequestType, Status } from '@/shared/api/types';
 import { cn } from '@/shared/lib/cn';
 import { downloadFile } from '@/shared/lib/download';
 import {
@@ -26,6 +26,8 @@ import {
   LoadingBlock,
   PageHeader,
   Pagination,
+  PriorityChip,
+  SegmentedControl,
   Select,
   Skeleton,
   SlaChip,
@@ -46,9 +48,12 @@ const ALL = '__all';
 export default function InboxPage() {
   useDocumentTitle(ru.inbox.title);
   const user = useUser();
-  const scope = user.role === 'admin' ? 'all' : 'inbox';
   const [sp, setSp] = useSearchParams();
   const filters = useMemo(() => filtersFromSearch(sp), [sp]);
+  // Admin: every request. Manager (CR6): own inbox by default, or "Все обращения" (scope=all).
+  const isManager = user.role === 'manager';
+  const allView = user.role === 'admin' || (isManager && filters.view === 'all');
+  const scope = allView ? 'all' : 'inbox';
   const meta = useMeta();
   const toast = useToast();
   const [exporting, setExporting] = useState(false);
@@ -77,7 +82,7 @@ export default function InboxPage() {
   });
   const counts = list.data?.counts;
   const active = hasActiveFilters(filters);
-  const activeCount = [filters.status, filters.category_id, filters.department_id, filters.assignee, filters.overdue].filter(Boolean).length;
+  const activeCount = [filters.status, filters.category_id, filters.department_id, filters.assignee, filters.overdue, filters.priority, filters.type].filter(Boolean).length;
 
   async function exportCsv() {
     setExporting(true);
@@ -95,18 +100,44 @@ export default function InboxPage() {
   const catOptions = [{ value: ALL, label: ru.common.all }, ...(meta.data?.categories ?? []).map((c) => ({ value: String(c.id), label: c.name }))];
   const statusOptions = [{ value: ALL, label: ru.common.all }, ...STATUSES.map((s) => ({ value: s, label: ru.statuses[s] }))];
   const sortOptions = (Object.keys(ru.inbox.sorts) as ListSort[]).map((s) => ({ value: s, label: ru.inbox.sorts[s] }));
+  const priorityOptions = [{ value: ALL, label: ru.common.any }, ...(['high', 'medium', 'low'] as Priority[]).map((p) => ({ value: p, label: ru.priorities[p] }))];
+  const typeOptions = [{ value: ALL, label: ru.common.any }, ...(['problem', 'idea', 'feedback'] as RequestType[]).map((t) => ({ value: t, label: ru.types[t] }))];
+  const resetFilters = () => {
+    setTerm('');
+    setSp(filtersToSearch({ tab: filters.tab, sort: filters.sort, page: 1, view: filters.view, mine: filters.mine }), { replace: true });
+  };
 
   return (
     <div>
       <PageHeader
         title={ru.inbox.title}
-        lead={user.role === 'admin' ? ru.inbox.leadAdmin : ru.inbox.lead}
+        lead={user.role === 'admin' ? ru.inbox.leadAdmin : allView ? ru.inbox.leadAll : ru.inbox.lead}
         actions={
           <Button onClick={exportCsv} loading={exporting} icon={<Download className="h-4 w-4" aria-hidden="true" />}>
             {ru.inbox.export}
           </Button>
         }
       />
+
+      {isManager && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <SegmentedControl<'inbox' | 'all'>
+            aria-label={ru.inbox.viewLabel}
+            className="sm:w-[360px]"
+            value={allView ? 'all' : 'inbox'}
+            onChange={(v) => update({ view: v === 'all' ? 'all' : undefined, mine: undefined })}
+            options={[
+              { value: 'inbox', label: ru.inbox.viewInbox },
+              { value: 'all', label: ru.inbox.viewAll },
+            ]}
+          />
+          {allView && (
+            <ToggleChip pressed={Boolean(filters.mine)} onClick={() => update({ mine: filters.mine ? undefined : true })}>
+              {ru.inbox.mineScope}
+            </ToggleChip>
+          )}
+        </div>
+      )}
 
       <Tabs value={filters.tab} onValueChange={(v) => update({ tab: v as InboxTab })}>
         <TabsList aria-label={ru.inbox.tabs}>
@@ -163,6 +194,8 @@ export default function InboxPage() {
             <FilterSelect label={ru.inbox.category} value={filters.category_id ? String(filters.category_id) : ALL} options={catOptions} onChange={(v) => update({ category_id: v === ALL ? undefined : Number(v) })} />
             <FilterSelect label={ru.inbox.department} value={filters.department_id ? String(filters.department_id) : ALL} options={deptOptions} onChange={(v) => update({ department_id: v === ALL ? undefined : Number(v) })} />
             <FilterSelect label={ru.inbox.status} value={filters.status ?? ALL} options={statusOptions} onChange={(v) => update({ status: v === ALL ? undefined : (v as Status) })} />
+            <FilterSelect label={ru.inbox.priority} value={filters.priority ?? ALL} options={priorityOptions} onChange={(v) => update({ priority: v === ALL ? undefined : (v as Priority) })} />
+            <FilterSelect label={ru.inbox.type} value={filters.type ?? ALL} options={typeOptions} onChange={(v) => update({ type: v === ALL ? undefined : (v as RequestType) })} />
             <div className="w-full md:hidden">
               <FilterSelect label={ru.inbox.sort} value={filters.sort} options={sortOptions} onChange={(v) => update({ sort: v as ListSort })} />
             </div>
@@ -182,10 +215,7 @@ export default function InboxPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  setTerm('');
-                  setSp(filtersToSearch({ tab: filters.tab, sort: filters.sort, page: 1 }), { replace: true });
-                }}
+                onClick={resetFilters}
                 icon={<RotateCcw className="h-4 w-4" aria-hidden="true" />}
               >
                 {ru.inbox.reset}
@@ -207,12 +237,7 @@ export default function InboxPage() {
                 text={active ? ru.inbox.emptyFilteredText : ru.inbox.emptyText}
                 action={
                   active && (
-                    <Button
-                      onClick={() => {
-                        setTerm('');
-                        setSp(filtersToSearch({ tab: filters.tab, sort: filters.sort, page: 1 }), { replace: true });
-                      }}
-                    >
+                    <Button onClick={resetFilters}>
                       {ru.inbox.reset}
                     </Button>
                   )
@@ -221,7 +246,7 @@ export default function InboxPage() {
             </div>
           ) : (
             <div className={cn('transition-opacity duration-150', list.isPlaceholderData && 'opacity-60')} aria-busy={list.isFetching}>
-              <RequestTable items={list.data.items} />
+              <RequestTable items={list.data.items} showOwner={allView} />
               <ul className="flex flex-col gap-3 md:hidden">
                 {list.data.items.map((r) => (
                   <li key={r.id}>
@@ -268,7 +293,7 @@ function ToggleChip({ pressed, onClick, children }: { pressed: boolean; onClick:
   );
 }
 
-function RequestTable({ items }: { items: RequestSummary[] }) {
+function RequestTable({ items, showOwner }: { items: RequestSummary[]; showOwner: boolean }) {
   const navigate = useNavigate();
   return (
     <div className="overflow-clip rounded-xl border border-border bg-surface shadow-sm max-md:hidden">
@@ -323,6 +348,21 @@ function RequestTable({ items }: { items: RequestSummary[] }) {
                       {r.author.anonymous && <EyeOff className="h-3 w-3" aria-hidden="true" />}
                       {r.author.name}
                     </span>
+                    {showOwner && (
+                      <span className="xl:hidden">
+                        <span aria-hidden="true">· </span>
+                        {r.department?.name ?? ru.inbox.unrouted}
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <PriorityChip priority={r.priority} />
+                    {r.access_level === 'observer' && (
+                      <span className="inline-flex items-center text-muted" title={ru.inbox.otherDept}>
+                        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span className="sr-only">{ru.inbox.otherDeptSr}</span>
+                      </span>
+                    )}
                   </span>
                 </td>
                 <td className="px-4 py-4 align-top">

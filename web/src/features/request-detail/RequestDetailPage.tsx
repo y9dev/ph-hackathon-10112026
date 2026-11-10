@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseMutationResult } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
   ArrowLeft,
@@ -17,10 +17,11 @@ import {
   Hammer,
   Undo2,
   EyeOff,
+  Eye,
 } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
 import { qk } from '@/shared/api/queries';
-import type { RequestDetail, Status } from '@/shared/api/types';
+import type { Attachment, CommentKind, RequestDetail, Status } from '@/shared/api/types';
 import { cn } from '@/shared/lib/cn';
 import { downloadFile } from '@/shared/lib/download';
 import { formatBytes, formatDateTime } from '@/shared/lib/format';
@@ -35,6 +36,7 @@ import {
   ErrorState,
   LoadingBlock,
   Meta,
+  PriorityChip,
   Skeleton,
   SlaChip,
   StatusChip,
@@ -67,8 +69,26 @@ export default function RequestDetailPage() {
         notFoundText={ru.errors.requestNotFound}
       />
     );
-  return <Detail r={q.data} />;
+  return (
+    <>
+      <BackLink />
+      <Detail r={q.data} />
+    </>
+  );
 }
+
+/**
+ * How the detail page talks to the server. `session` = signed-in user (author or staff);
+ * `token` = anonymous author holding the secret token (CR2): no staff tools, answers and
+ * attachment downloads go through the /anonymous/* endpoints.
+ */
+export type DetailMode =
+  | { kind: 'session' }
+  | {
+      kind: 'token';
+      comment: UseMutationResult<RequestDetail, Error, { kind: CommentKind; body: string }>;
+      download: (a: Attachment) => Promise<void>;
+    };
 
 function BackLink() {
   const navigate = useNavigate();
@@ -85,25 +105,28 @@ function BackLink() {
   );
 }
 
-function Detail({ r }: { r: RequestDetail }) {
+export function Detail({ r, mode = { kind: 'session' } }: { r: RequestDetail; mode?: DetailMode }) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [kindRequest, setKindRequest] = useState<KindRequest>();
   const isAuthor = r.author.is_me;
-  const staffView = r.allowed_statuses.length > 0 || r.can_assign || r.allowed_comment_kinds.includes('internal');
+  const tokenMode = mode.kind === 'token';
+  // CR6: only the owner (admin / responsible manager) gets the staff panel; an observer reads and writes notes.
+  const staffView = !tokenMode && !isAuthor && r.access_level === 'owner';
+  const observer = !tokenMode && r.access_level === 'observer';
   const needsAnswer = isAuthor && r.status === 'needs_info' && r.allowed_comment_kinds.includes('answer');
   const closed = isTerminal(r.status);
 
   return (
     <div>
-      <BackLink />
       <header className="mb-6">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="tabular text-sm font-medium text-muted">{r.number}</span>
           <TypeLabel type={r.type} className="text-sm" />
           <StatusChip status={r.status} />
           {!closed && <SlaChip sla={r.sla} status={r.status} />}
+          <PriorityChip priority={r.priority} />
           {r.author.anonymous && <AnonymousBadge />}
-          {r.theme && (
+          {r.theme && !tokenMode && (
             <Badge tone="brand" icon={<Tags className="h-3.5 w-3.5" aria-hidden="true" />}>
               {r.theme.title}
             </Badge>
@@ -111,6 +134,17 @@ function Detail({ r }: { r: RequestDetail }) {
         </div>
         <h1 className="mt-3 min-w-0 text-2xl font-semibold tracking-tight text-text [overflow-wrap:anywhere] md:text-3xl">{r.title}</h1>
       </header>
+
+      {observer && (
+        <div role="note" className="mb-6 flex gap-3 rounded-xl border border-info/40 bg-info-soft px-4 py-4 md:px-6" data-testid="observer-banner">
+          <Eye className="mt-0.5 h-5 w-5 shrink-0 text-info" aria-hidden="true" />
+          <div>
+            <p className="font-semibold text-text">{ru.detail.observerTitle}</p>
+            <p className="mt-1 text-sm text-text">{ru.detail.observerText}</p>
+            {r.department && <p className="mt-1 text-sm text-muted">{ru.detail.observerOwner(r.department.name)}</p>}
+          </div>
+        </div>
+      )}
 
       {needsAnswer && (
         <div role="status" className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-xl border border-warning/50 bg-warning-soft px-4 py-4 md:px-6">
@@ -139,7 +173,7 @@ function Detail({ r }: { r: RequestDetail }) {
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8">
         <div className="flex min-w-0 flex-col gap-6">
-          {r.result_text && <ResultCard r={r} highlight={isAuthor} />}
+          {r.result_text && <ResultCard r={r} highlight={isAuthor} linkDuplicate={!tokenMode} />}
 
           <Card>
             <CardHeader title={ru.detail.description} />
@@ -151,7 +185,7 @@ function Detail({ r }: { r: RequestDetail }) {
                   <p className="mt-2 whitespace-pre-line break-words text-base leading-relaxed text-text">{r.proposed_solution}</p>
                 </div>
               )}
-              {r.attachments.length > 0 && <Attachments r={r} />}
+              {r.attachments.length > 0 && <Attachments r={r} download={mode.kind === 'token' ? mode.download : undefined} />}
             </div>
           </Card>
 
@@ -162,14 +196,15 @@ function Detail({ r }: { r: RequestDetail }) {
             <Timeline items={r.timeline} />
           </section>
 
-          <Composer ref={composerRef} request={r} kindRequest={kindRequest} />
+          {tokenMode && closed && <p className="text-sm text-muted">{ru.anonymous.closedNote}</p>}
+          <Composer ref={composerRef} request={r} kindRequest={kindRequest} mutation={mode.kind === 'token' ? mode.comment : undefined} />
         </div>
 
         <aside className="flex flex-col gap-6 lg:sticky lg:top-24" aria-label={ru.detail.metaPanel}>
           {staffView && <StaffActions r={r} onAskQuestion={() => setKindRequest((k) => ({ kind: 'question', n: (k?.n ?? 0) + 1 }))} />}
           <MetaCard r={r} />
-          {staffView && <SimilarCard r={r} />}
-          {!staffView && r.similar.count > 0 && (
+          {(staffView || observer) && <SimilarCard r={r} />}
+          {!staffView && !observer && r.similar.count > 0 && (
             <p className="px-1 text-sm text-muted">{ru.submit.similar(r.similar.count)}</p>
           )}
         </aside>
@@ -178,7 +213,7 @@ function Detail({ r }: { r: RequestDetail }) {
   );
 }
 
-function ResultCard({ r, highlight }: { r: RequestDetail; highlight: boolean }) {
+function ResultCard({ r, highlight, linkDuplicate }: { r: RequestDetail; highlight: boolean; linkDuplicate: boolean }) {
   const Icon = r.status === 'implemented' ? CircleCheckBig : r.status === 'closed' ? Archive : r.status === 'duplicate' ? Copy : r.status === 'declined' ? CircleX : CircleCheckBig;
   const tone =
     r.status === 'implemented'
@@ -201,9 +236,13 @@ function ResultCard({ r, highlight }: { r: RequestDetail; highlight: boolean }) 
       {r.duplicate_of && (
         <p className="mt-3 text-sm text-text">
           {ru.detail.duplicateOf}{' '}
-          <Link to={`/requests/${r.duplicate_of.id}`} className="font-medium text-brand underline-offset-4 hover:underline">
-            {r.duplicate_of.number}
-          </Link>
+          {linkDuplicate ? (
+            <Link to={`/requests/${r.duplicate_of.id}`} className="font-medium text-brand underline-offset-4 hover:underline">
+              {r.duplicate_of.number}
+            </Link>
+          ) : (
+            <span className="font-medium">{r.duplicate_of.number}</span>
+          )}
         </p>
       )}
       {r.closed_at && <p className="tabular mt-3 text-xs text-muted">{formatDateTime(r.closed_at)}</p>}
@@ -211,7 +250,7 @@ function ResultCard({ r, highlight }: { r: RequestDetail; highlight: boolean }) 
   );
 }
 
-function Attachments({ r }: { r: RequestDetail }) {
+function Attachments({ r, download }: { r: RequestDetail; download?: (a: Attachment) => Promise<void> }) {
   const toast = useToast();
   const [busy, setBusy] = useState<number | null>(null);
   return (
@@ -226,7 +265,8 @@ function Attachments({ r }: { r: RequestDetail }) {
               onClick={async () => {
                 setBusy(a.id);
                 try {
-                  await downloadFile(api.attachmentUrl(a.id), a.filename);
+                  if (download) await download(a);
+                  else await downloadFile(api.attachmentUrl(a.id), a.filename);
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : ru.errors.generic);
                 } finally {
@@ -256,6 +296,7 @@ function MetaCard({ r }: { r: RequestDetail }) {
       <CardHeader title={ru.detail.details} as="h2" />
       <dl className="grid grid-cols-2 gap-4 px-6 pb-6 pt-4 max-sm:px-4 lg:grid-cols-1">
         <Meta label={ru.detail.category}>{r.category.name}</Meta>
+        <Meta label={ru.detail.priority}>{ru.priorities[r.priority] ?? '—'}</Meta>
         <Meta label={ru.detail.department}>
           {r.department ? r.department.name : <span className="text-warning">{ru.inbox.unrouted}</span>}
           <span className="mt-0.5 block text-xs text-muted">{routing}</span>
@@ -389,7 +430,7 @@ function SimilarCard({ r }: { r: RequestDetail }) {
   );
 }
 
-function DetailSkeleton() {
+export function DetailSkeleton() {
   return (
     <LoadingBlock>
       <Skeleton className="mb-6 h-5 w-32" />

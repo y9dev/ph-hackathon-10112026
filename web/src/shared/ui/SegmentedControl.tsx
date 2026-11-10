@@ -6,6 +6,8 @@ export interface SegmentOption<T extends string> {
   label: ReactNode;
   icon?: ReactNode;
   hint?: ReactNode;
+  /** Accessible name when the visible label is shortened (e.g. on narrow screens). */
+  ariaLabel?: string;
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -17,6 +19,8 @@ export interface SegmentedControlProps<T extends string> {
   'aria-describedby'?: string;
   invalid?: boolean;
   className?: string;
+  /** Let long labels wrap to two lines instead of truncating. */
+  wrap?: boolean;
 }
 
 /** Radio group rendered as a segmented control (roving tabindex, arrow keys). */
@@ -26,6 +30,7 @@ export function SegmentedControl<T extends string>({
   options,
   invalid,
   className,
+  wrap,
   ...aria
 }: SegmentedControlProps<T>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -69,17 +74,18 @@ export function SegmentedControl<T extends string>({
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-label={o.ariaLabel}
             tabIndex={i === activeIndex ? 0 : -1}
             onClick={() => onChange(o.value)}
             onKeyDown={(e) => onKey(e, i)}
             className={cn(
-              'flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg px-3 font-medium transition-[background-color,color,box-shadow] duration-150',
-              'h-10 text-sm max-md:h-11',
+              'flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg font-medium transition-[background-color,color,box-shadow] duration-150',
+              wrap ? 'min-h-10 px-2 py-1.5 text-sm leading-tight max-md:min-h-11' : 'h-10 px-3 text-sm max-md:h-11',
               selected ? 'bg-surface text-text shadow-sm ring-1 ring-border' : 'text-muted hover:text-text',
             )}
           >
             {o.icon}
-            <span className="truncate">{o.label}</span>
+            <span className={wrap ? 'text-center [overflow-wrap:anywhere]' : 'truncate'}>{o.label}</span>
           </button>
         );
       })}

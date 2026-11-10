@@ -1,12 +1,7 @@
 // Fixes from the usability / UI / accessibility audit: dialogs, focus return, analytics scopes,
 // suggested groups, routing admin, long-title overflow, mobile submit form.
-import { expect, test, type Page } from '@playwright/test';
-import { loginAs, logout, openFromInbox, ROLES, submitRequest, uniqueTitle } from './helpers';
-
-async function noHorizontalScroll(page: Page, label: string) {
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(overflow, `${label} horizontal overflow`).toBeLessThanOrEqual(0);
-}
+import { expect, test } from '@playwright/test';
+import { createSimilarGroup, loginAs, logout, noHorizontalScroll, openFromInbox, ROLES, submitRequest, uniqueTitle } from './helpers';
 
 test.describe('Request detail: dialogs and focus', () => {
   test('B1 focus returns to the opener on Esc / Cancel; stage move explains itself; close dialogs differ', async ({ page }) => {
@@ -85,8 +80,8 @@ test.describe('Request detail: dialogs and focus', () => {
     const longTheme = `Тема${'Оченьдлинноеназваниебезпробелов'.repeat(4)}`.slice(0, 140);
     await page.getByRole('button', { name: 'Добавить в тему' }).click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Новая тема').fill(longTheme);
-    await dialog.getByRole('button', { name: 'Сохранить' }).click();
+    await dialog.getByLabel('Название новой темы').fill(longTheme);
+    await dialog.getByRole('button', { name: 'Добавить', exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByRole('button', { name: new RegExp(`^Тема: ${longTheme.slice(0, 20)}`) })).toBeVisible();
 
@@ -107,6 +102,9 @@ test.describe('Request detail: dialogs and focus', () => {
 
 test.describe('Analytics', () => {
   test('U4/U5 scopes, date range, confidence badge and ticking requests of a suggested group', async ({ page }) => {
+    await loginAs(page, ROLES.employee);
+    await createSimilarGroup(page);
+    await logout(page);
     await loginAs(page, ROLES.admin);
     await page.goto('/analytics');
     await expect(page.getByRole('heading', { level: 1, name: 'Аналитика' })).toBeVisible();
@@ -136,6 +134,9 @@ test.describe('Analytics', () => {
   });
 
   test('A3/A4 mobile: bar labels wrap, "Создать тему" sits under the title, 44px rows', async ({ page }) => {
+    await loginAs(page, ROLES.employee);
+    await createSimilarGroup(page);
+    await logout(page);
     await loginAs(page, ROLES.admin);
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/analytics');
@@ -175,21 +176,20 @@ test.describe('Admin routing', () => {
 });
 
 test.describe('Mobile submit form', () => {
-  test('U11 compact category grid keeps the first text field close; routing summary under the choice; invalid submit focuses the first field', async ({ page }) => {
+  test('U11 compact category picker keeps the first text field on screen; routing summary under the choice; invalid submit focuses the first field', async ({ page }) => {
     await loginAs(page, ROLES.employee);
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/new');
-    const group = page.getByRole('radiogroup', { name: 'Категория' });
-    await expect(group).toBeVisible();
+    const box = page.getByRole('combobox', { name: 'Категория' });
+    await expect(box).toBeVisible();
     await noHorizontalScroll(page, '/new @375');
-    const radios = group.getByRole('radio');
-    const count = await radios.count();
-    const [a, b] = [await radios.nth(0).boundingBox(), await radios.nth(1).boundingBox()];
-    expect(Math.abs(a!.y - b!.y)).toBeLessThan(2); // two columns
+    // 18 categories in one compact field: the first text field is visible without scrolling.
+    // Its top edge is above the sticky submit bar (bottom nav 64px + bar ~72px).
     const title = await page.getByLabel('Коротко о сути').boundingBox();
-    expect(title!.y, `${count} categories`).toBeLessThan(812 + 120);
+    expect(title!.y).toBeLessThan(812 - 64 - 72);
 
-    await radios.first().click();
+    await box.click();
+    await page.getByRole('option').first().click();
     await expect(page.getByTestId('routing-compact')).toBeVisible();
     await expect(page.getByTestId('routing-compact')).toContainText(/Отдел «.+» · ответ до |Примет администратор/);
 
@@ -210,7 +210,7 @@ test.describe('Mobile submit form', () => {
     await expect(sw).toHaveAttribute('aria-checked', 'false');
     // Clicking the description text (not the switch itself) toggles it: the label stretches over the whole row.
     // force: the stretched label deliberately sits above the text, which Playwright reports as "intercepts pointer events".
-    const desc = page.getByText('Ваше имя не увидят ни руководитель', { exact: false });
+    const desc = page.getByText('Ваше имя не сохраняется — ни в базе данных', { exact: false });
     await desc.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     await desc.click({ force: true });
     await expect(sw).toHaveAttribute('aria-checked', 'true');

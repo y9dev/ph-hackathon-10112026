@@ -1,17 +1,17 @@
 import { Link } from 'react-router';
-import { MessageCircleQuestion, MessageSquare, Lightbulb, TriangleAlert, ChevronRight } from 'lucide-react';
+import { MessageCircleQuestion, MessageSquare, Lightbulb, TriangleAlert, ChevronRight, ThumbsUp, Eye } from 'lucide-react';
 import type { RequestSummary } from '@/shared/api/types';
 import { cn } from '@/shared/lib/cn';
 import { formatRelative } from '@/shared/lib/format';
 import { isTerminal } from '@/shared/lib/status';
 import { waitingDays } from '@/shared/lib/sla';
 import { ru } from '@/shared/i18n/ru';
-import { AnonymousBadge, SlaChip, StatusChip } from './Chips';
+import { AnonymousBadge, Badge, PriorityChip, SlaChip, StatusChip } from './Chips';
 import { StageStepperCompact } from './StageStepper';
 import { Skeleton } from './States';
 
 export function TypeLabel({ type, className }: { type: RequestSummary['type']; className?: string }) {
-  const Icon = type === 'idea' ? Lightbulb : TriangleAlert;
+  const Icon = type === 'idea' ? Lightbulb : type === 'feedback' ? ThumbsUp : TriangleAlert;
   return (
     <span className={cn('inline-flex items-center gap-1 text-xs text-muted', className)}>
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -51,6 +51,10 @@ export function RequestCard({ r, variant }: { r: RequestSummary; variant: 'autho
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <StatusChip status={r.status} />
         {!isTerminal(r.status) && <SlaChip sla={r.sla} status={r.status} />}
+        <PriorityChip priority={r.priority} />
+        {variant === 'staff' && r.access_level === 'observer' && (
+          <Badge icon={<Eye className="h-3.5 w-3.5" aria-hidden="true" />}>{ru.inbox.otherDept}</Badge>
+        )}
         {r.comments_count > 0 && (
           <span className="inline-flex items-center gap-1 text-xs text-muted">
             <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />

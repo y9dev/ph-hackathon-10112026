@@ -1,12 +1,14 @@
 // Types mirror docs/api/openapi.yaml (FROZEN CONTRACT). Keep field names in snake_case.
 
 export type Role = 'employee' | 'manager' | 'admin';
-export type RequestType = 'problem' | 'idea';
+export type RequestType = 'problem' | 'idea' | 'feedback';
+export type Priority = 'low' | 'medium' | 'high';
+export type AccessLevel = 'owner' | 'observer' | 'author';
 export type Status = 'new' | 'in_review' | 'needs_info' | 'decision' | 'in_progress' | 'implemented' | 'declined' | 'duplicate' | 'closed';
 export type CommentKind = 'comment' | 'question' | 'answer' | 'internal' | 'report';
 export type InboxTab = 'needs_action' | 'in_progress' | 'waiting_author' | 'closed' | 'all';
 export type ListScope = 'mine' | 'inbox' | 'all';
-export type ListSort = 'deadline' | 'newest' | 'oldest' | 'updated';
+export type ListSort = 'deadline' | 'newest' | 'oldest' | 'updated' | 'priority';
 export type SlaStateKind = 'ok' | 'soon' | 'overdue' | 'paused' | 'done';
 export type RoutingSource = 'rule' | 'manual' | 'unrouted';
 export type TimelineKind =
@@ -80,6 +82,8 @@ export interface Meta {
   departments: Department[];
   statuses: { id: Status; label: string; terminal: boolean }[];
   limits: MetaLimits;
+  /** Optional in older servers; treat a missing flag as false. */
+  features?: { telegram?: boolean; priority?: boolean } | null;
   assignable_users: { id: number; name: string; department_id: number }[];
 }
 
@@ -100,6 +104,7 @@ export interface CreateRequest {
   body: string;
   proposed_solution?: string;
   is_anonymous?: boolean;
+  priority?: Priority;
 }
 
 export interface PersonView {
@@ -134,6 +139,8 @@ export interface RequestSummary {
   department: IdName | null;
   assignee: IdName | null;
   routing_source: RoutingSource;
+  priority: Priority;
+  access_level: AccessLevel;
   sla: SlaState;
   comments_count: number;
   awaiting_author: boolean;
@@ -185,6 +192,8 @@ export interface SimilarItem {
 }
 
 export interface RequestDetail extends RequestSummary {
+  /** Only in the 201 response of POST /requests with is_anonymous=true; shown once. */
+  anonymous_token?: string | null;
   body: string;
   proposed_solution: string | null;
   result_text: string | null;
@@ -236,13 +245,16 @@ export interface AnalyticsSummary {
     total: number;
     reviewed_share: number;
     median_first_response_hours: number | null;
-    p90_first_response_hours: number | null;
+    first_response_on_time_share: number | null;
+    first_response_sample: number;
+    median_resolution_hours: number | null;
     outcome_share: number;
     implemented_count: number;
     overdue_count: number;
     auto_routed_share: number;
   };
   by_status: { status: Status; count: number }[];
+  by_type?: { type: RequestType; count: number; closed: number }[] | null;
   by_category: { category: string; count: number; implemented: number; declined: number; open: number }[];
   by_department: { department: string; count: number; open: number; overdue: number }[];
   timeseries: { date: string; created: number; closed: number }[];
@@ -299,6 +311,10 @@ export interface ListParams {
   department_id?: number;
   assignee?: 'me' | 'none';
   overdue?: boolean;
+  priority?: Priority;
+  request_type?: RequestType;
+  /** Manager with scope=all: only own departments / assigned requests. */
+  mine_scope?: boolean;
   q?: string;
   sort?: ListSort;
   page?: number;
@@ -307,4 +323,20 @@ export interface ListParams {
 
 export interface ItemsOf<T> {
   items: T[];
+}
+
+export interface TelegramStatus {
+  enabled: boolean;
+  bot_url: string | null;
+  bot_username: string | null;
+  linked: boolean;
+  linked_at: string | null;
+  telegram_username: string | null;
+}
+
+export interface TelegramLinkCode {
+  code: string;
+  expires_in_seconds: number;
+  period_seconds: number;
+  bot_url: string;
 }

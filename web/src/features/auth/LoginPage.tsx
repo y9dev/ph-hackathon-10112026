@@ -1,9 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import { Navigate, useNavigate, useSearchParams } from 'react-router';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
-import { CircleAlert, MessageSquareText, Route, BadgeCheck, ChevronRight, UserRound, Briefcase, ShieldCheck } from 'lucide-react';
+import { CircleAlert, MessageSquareText, Route, BadgeCheck, ChevronRight, UserRound, Briefcase, ShieldCheck, KeyRound } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
 import { qk } from '@/shared/api/queries';
 import type { DemoUser, Role } from '@/shared/api/types';
@@ -122,6 +122,17 @@ export default function LoginPage() {
                 {ru.auth.submit}
               </Button>
             </form>
+            <Link
+              to="/anonymous"
+              className="mt-4 flex min-h-11 items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm font-medium text-brand transition-colors duration-150 hover:border-border-strong hover:bg-surface-2"
+            >
+              <KeyRound className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                {ru.auth.anonymousLink}
+                <span className="block text-xs font-normal text-muted">{ru.auth.anonymousLinkHint}</span>
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+            </Link>
           </div>
 
           {demo.isPending && (
@@ -152,15 +163,18 @@ export default function LoginPage() {
                         type="button"
                         onClick={() => demoLogin(u)}
                         disabled={login.isPending}
-                        aria-label={ru.auth.demoLoginAs(`${ru.roles[role]} — ${u.title}, ${u.name}`)}
+                        aria-label={ru.auth.demoLoginAs(u.title && u.title !== u.name ? `${u.name}, ${u.title} (${ru.roles[role]})` : `${u.name} (${ru.roles[role]})`)}
                         className="group flex w-full items-center gap-3 rounded-lg border border-border bg-surface px-3 py-3 text-left transition-[border-color,background-color] duration-150 hover:border-brand hover:bg-brand-soft disabled:opacity-60"
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted transition-colors duration-150 group-hover:bg-surface group-hover:text-brand" aria-hidden="true">
                           <Icon className="h-4 w-4" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-text">{u.title}</span>
-                          <span className="block truncate text-xs text-muted">{u.name}</span>
+                          <span className="block truncate text-sm font-medium text-text">{u.name}</span>
+                          <span className="block truncate text-xs text-muted">
+                            {ru.roles[role]}
+                            {u.title && u.title !== u.name ? ` · ${u.title}` : ''}
+                          </span>
                         </span>
                         <ChevronRight className="h-4 w-4 shrink-0 text-muted transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
                       </button>

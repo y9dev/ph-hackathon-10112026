@@ -3,7 +3,7 @@ import { checkFiles, makeSubmitSchema, toPayload } from './schema';
 
 const limits = { max_files: 5, max_file_mb: 10, max_total_mb: 10, allowed_extensions: ['png', 'jpg', 'pdf', 'txt'], title_max: 140, body_max: 4000 };
 const schema = makeSubmitSchema(limits);
-const valid = { type: 'problem' as const, category_id: 1, title: 'Не работает VPN', body: 'VPN на объекте не подключается третий день подряд', proposed_solution: '', is_anonymous: false };
+const valid = { type: 'problem' as const, priority: 'medium' as const, category_id: 1, title: 'Не работает VPN', body: 'VPN на объекте не подключается третий день подряд', proposed_solution: '', is_anonymous: false };
 
 function file(name: string, size: number) {
   const f = new File(['x'], name);
@@ -36,7 +36,16 @@ describe('submit schema (same limits as the server)', () => {
       title: 'Не работает VPN',
       body: valid.body,
       is_anonymous: false,
+      priority: 'medium',
     });
+  });
+  it('accepts positive feedback and every priority, rejects unknown ones', () => {
+    for (const priority of ['low', 'medium', 'high'] as const) expect(schema.safeParse({ ...valid, type: 'feedback', priority }).success).toBe(true);
+    expect(schema.safeParse({ ...valid, priority: 'urgent' }).success).toBe(false);
+    expect(schema.safeParse({ ...valid, type: 'praise' }).success).toBe(false);
+  });
+  it('drops the proposed solution for feedback (the form hides that field)', () => {
+    expect(toPayload({ ...valid, type: 'feedback', proposed_solution: 'старый текст' })).not.toHaveProperty('proposed_solution');
   });
 });
 

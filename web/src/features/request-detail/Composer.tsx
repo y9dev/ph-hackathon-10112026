@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useRef, useState, type FormEvent } from 'react';
 import { MessageSquare, MessageCircleQuestion, Reply, Lock, Send, ClipboardList } from 'lucide-react';
+import type { UseMutationResult } from '@tanstack/react-query';
 import type { CommentKind, RequestDetail } from '@/shared/api/types';
 import { ApiError } from '@/shared/api/client';
 import { cn } from '@/shared/lib/cn';
@@ -38,10 +39,17 @@ export interface KindRequest {
   n: number;
 }
 
-export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail; kindRequest?: KindRequest }>(function Composer(
-  { request, kindRequest },
-  ref,
-) {
+export type CommentMutation = UseMutationResult<RequestDetail, Error, { kind: CommentKind; body: string }>;
+
+export const Composer = forwardRef<
+  HTMLTextAreaElement,
+  {
+    request: RequestDetail;
+    kindRequest?: KindRequest;
+    /** Override how comments are sent (anonymous token mode posts to /anonymous/comments). */
+    mutation?: CommentMutation;
+  }
+>(function Composer({ request, kindRequest, mutation }, ref) {
   const kinds = request.allowed_comment_kinds;
   const [kind, setKind] = useState<CommentKind | undefined>(() => defaultKind(kinds, request.status));
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
@@ -52,7 +60,8 @@ export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail
   };
   const [text, setText] = useState('');
   const [error, setError] = useState<string | undefined>();
-  const { comment } = useRequestMutations(request.id);
+  const own = useRequestMutations(request.id).comment;
+  const comment = mutation ?? own;
   const toast = useToast();
 
   // Keep the selected kind valid when allowed kinds change (e.g. after an answer).
@@ -124,6 +133,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, { request: RequestDetail
       </h3>
       {kinds.length > 1 && (
         <SegmentedControl
+          wrap
           className="mb-4"
           aria-label={ru.detail.composerKind}
           value={kind}

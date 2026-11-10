@@ -3,7 +3,9 @@ import { Link } from 'react-router';
 import { Bell, CheckCheck } from 'lucide-react';
 import { ru } from '@/shared/i18n/ru';
 import { cn } from '@/shared/lib/cn';
-import { Button, ErrorState, Popover, PopoverContent, PopoverTrigger, Skeleton } from '@/shared/ui';
+import { Button, ErrorState, Popover, PopoverContent, PopoverTrigger, Skeleton, Tooltip } from '@/shared/ui';
+import { TelegramIcon } from '@/features/telegram/TelegramIcon';
+import { useTelegramEnabled } from '@/features/telegram/useTelegramEnabled';
 import { useMarkRead, useNotifications } from './api';
 import type { Notification } from '@/shared/api/types';
 import { NotificationItem } from './NotificationItem';
@@ -13,6 +15,7 @@ export function NotificationsBell() {
   const q = useNotifications(8);
   const mark = useMarkRead();
   const unread = q.data?.unread_count ?? 0;
+  const telegram = useTelegramEnabled();
 
   function onOpenItem(n: Notification) {
     setOpen(false);
@@ -77,14 +80,27 @@ export function NotificationsBell() {
             </ul>
           )}
         </div>
-        <div className="border-t border-border p-1">
+        <div className="flex items-center gap-1 border-t border-border p-1">
           <Link
             to="/notifications"
             onClick={() => setOpen(false)}
-            className={cn('flex h-10 items-center justify-center rounded-lg text-sm font-medium text-brand hover:bg-surface-2')}
+            className={cn('flex h-11 min-w-0 flex-1 items-center justify-center rounded-lg text-sm font-medium text-brand hover:bg-surface-2')}
           >
             {ru.notifications.all}
           </Link>
+          {telegram && (
+            <Tooltip content={ru.notifications.telegram}>
+              <Link
+                to="/telegram"
+                onClick={() => setOpen(false)}
+                aria-label={ru.notifications.telegram}
+                data-testid="bell-telegram"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-brand"
+              >
+                <TelegramIcon className="h-5 w-5" />
+              </Link>
+            </Tooltip>
+          )}
         </div>
       </PopoverContent>
     </Popover>

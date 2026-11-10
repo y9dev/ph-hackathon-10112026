@@ -20,6 +20,8 @@ import type {
   RoutingRuleInput,
   Status,
   SuggestedGroup,
+  TelegramLinkCode,
+  TelegramStatus,
   Theme,
   User,
   ApiErrorBody,
@@ -76,10 +78,12 @@ interface RequestOptions {
   form?: FormData;
   /** Do not broadcast 401 (used by /auth/me and /auth/login). */
   silent401?: boolean;
+  /** Extra request headers (e.g. X-Anonymous-Token). */
+  headers?: Record<string, string>;
 }
 
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: 'application/json', ...opts.headers };
   let body: BodyInit | undefined;
   if (opts.form) {
     body = opts.form;
@@ -168,4 +172,16 @@ export const api = {
   createUser: (b: AdminUserInput) => request<AdminUser>('/admin/users', { method: 'POST', body: b }),
   updateUser: (id: number, b: AdminUserInput) => request<AdminUser>(`/admin/users/${id}`, { method: 'PATCH', body: b }),
   adminDepartments: () => request<ItemsOf<Department>>('/admin/departments'),
+
+  // CR2: anonymous author access by secret token (no session). The token travels only in
+  // request bodies / the X-Anonymous-Token header, never in URLs.
+  anonymousLookup: (token: string) =>
+    request<RequestDetail>('/anonymous/lookup', { method: 'POST', body: { token }, silent401: true }),
+  anonymousComment: (token: string, body: string) =>
+    request<RequestDetail>('/anonymous/comments', { method: 'POST', body: { token, body }, silent401: true }),
+  anonymousAttachmentUrl: (id: number) => `${API_BASE}/anonymous/attachments/${id}`,
+
+  // CR4: Telegram bot linking.
+  telegramStatus: () => request<TelegramStatus>('/telegram/status'),
+  telegramLinkCode: () => request<TelegramLinkCode>('/telegram/link-code'),
 };

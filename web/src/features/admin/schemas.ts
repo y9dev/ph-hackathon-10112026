@@ -8,7 +8,7 @@ const hours = z
 
 export const ruleSchema = z.object({
   category_id: z.number({ invalid_type_error: ru.submit.errors.category }).int().positive(ru.submit.errors.category),
-  request_type: z.enum(['problem', 'idea']).nullable(),
+  request_type: z.enum(['problem', 'idea', 'feedback']).nullable(),
   department_id: z.number({ invalid_type_error: ru.detail.assignDeptRequired }).int().positive(ru.detail.assignDeptRequired),
   assignee_user_id: z.number().int().positive().nullable(),
   first_response_hours: hours,

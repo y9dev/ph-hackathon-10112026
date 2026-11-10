@@ -2,6 +2,7 @@
 // Follows the contract exactly: AuthorView masking, allowed_statuses,
 // allowed_comment_kinds, SLA state, error envelope, scopes and tabs.
 import type {
+  AccessLevel,
   AdminUser,
   AnalyticsSummary,
   CommentKind,
@@ -15,10 +16,18 @@ import type {
   Status,
   TimelineItem,
   User,
+  RequestType,
+  Priority,
 } from '../types';
 import type { MockDb, MRequest, MUser } from './model';
 import { SIMILAR_THRESHOLD, similarity } from './similarity';
-import { DEMO_PASSWORD } from './seed';
+import { canonicalToken, DEMO_LOGINS, DEMO_PASSWORD, newToken } from './seed';
+
+const TYPES: RequestType[] = ['problem', 'idea', 'feedback'];
+const PRIORITIES: Priority[] = ['low', 'medium', 'high'];
+const PRIORITY_RANK: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+/** In-memory sentinel for the holder of an anonymous token (never stored). */
+const ANON_SELF = -1;
 
 const H = 3_600_000;
 const TERMINAL: Status[] = ['implemented', 'declined', 'duplicate', 'closed'];
@@ -72,6 +81,7 @@ export interface MockRequest {
   query: URLSearchParams;
   json: () => unknown;
   form: FormData | null;
+  header?: (name: string) => string | null;
 }
 export interface MockResponse {
   status: number;
@@ -125,12 +135,26 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     };
   }
 
+  /** Request currently opened by an anonymous token holder (set per call, never persisted). */
+  let anonTarget: number | null = null;
+  /** Viewer is the request's author: named author by id, anonymous author only through the token (in memory). */
+  const isAuthorOf = (u: MUser, r: MRequest) => (r.author_id === null ? u.id === ANON_SELF && anonTarget === r.id : u.id === r.author_id);
+  /** OWNER (full staff powers): admin, or manager heading the request's department or assigned to it. */
   function inStaffScope(u: MUser, r: MRequest): boolean {
     if (u.role === 'admin') return true;
     if (u.role !== 'manager') return false;
     return (r.department_id !== null && ledIds(u).includes(r.department_id)) || r.assignee_id === u.id;
   }
-  const canSee = (u: MUser, r: MRequest) => r.author_id === u.id || inStaffScope(u, r);
+  /** CR6: a manager who reads but does not own the request. */
+  const isObserver = (u: MUser, r: MRequest) => u.role === 'manager' && !inStaffScope(u, r) && !isAuthorOf(u, r);
+  /** CR6: managers and admins read every request; authors read their own (anonymous ones only by token). */
+  const canSee = (u: MUser, r: MRequest) => isAuthorOf(u, r) || isStaff(u);
+  const seesInternal = (u: MUser, r: MRequest) => isStaff(u) && !isAuthorOf(u, r);
+  function accessLevel(u: MUser, r: MRequest): AccessLevel {
+    if (isAuthorOf(u, r)) return 'author';
+    if (inStaffScope(u, r)) return 'owner';
+    return 'observer';
+  }
 
   function staffRole(u: MUser): string {
     if (u.role === 'admin') return 'Администратор';
@@ -138,14 +162,15 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
   }
 
   /** The single AuthorView mapper: every person in every response goes through here. */
-  function personView(viewer: MUser, r: MRequest, personId: number | null): PersonView | null {
+  function authorView(viewer: MUser, r: MRequest): PersonView {
+    const isMe = isAuthorOf(viewer, r);
+    if (r.is_anonymous) return { name: ANON_NAME, anonymous: true, is_me: isMe, role: null };
+    return { name: user(r.author_id)?.name ?? '', anonymous: false, is_me: isMe, role: null };
+  }
+  function personView(viewer: MUser, r: MRequest, personId: number | null, byAuthor = false): PersonView | null {
+    if (byAuthor || (personId !== null && personId === r.author_id)) return authorView(viewer, r);
     if (personId === null) return null;
     const p = user(personId);
-    if (personId === r.author_id) {
-      if (viewer.id === personId) return { name: p?.name ?? '', anonymous: r.is_anonymous, is_me: true, role: null };
-      if (r.is_anonymous) return { name: ANON_NAME, anonymous: true, is_me: false, role: null };
-      return { name: p?.name ?? '', anonymous: false, is_me: false, role: null };
-    }
     return { name: p?.name ?? '', anonymous: false, is_me: viewer.id === personId, role: p ? staffRole(p) : null };
   }
 
@@ -176,7 +201,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     const d = dept(r.department_id);
     const a = user(r.assignee_id);
     const commentsCount = db.comments.filter(
-      (cm) => cm.request_id === r.id && (cm.kind !== 'internal' || inStaffScope(viewer, r)),
+      (cm) => cm.request_id === r.id && (cm.kind !== 'internal' || seesInternal(viewer, r)),
     ).length;
     return {
       id: r.id,
@@ -185,10 +210,12 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       category: { id: r.category_id, name: c?.name ?? '' },
       title: r.title,
       status: r.status,
-      author: personView(viewer, r, r.author_id)!,
+      author: authorView(viewer, r),
       department: d ? { id: d.id, name: d.name } : null,
       assignee: a ? { id: a.id, name: a.name } : null,
       routing_source: r.routing_source,
+      priority: r.priority,
+      access_level: accessLevel(viewer, r),
       sla: sla(r),
       comments_count: commentsCount,
       awaiting_author: r.status === 'needs_info',
@@ -222,13 +249,13 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
 
   function detail(viewer: MUser, r: MRequest): RequestDetail {
     const staff = inStaffScope(viewer, r);
-    const isAuthor = r.author_id === viewer.id;
+    const isAuthor = isAuthorOf(viewer, r);
     const items: TimelineItem[] = [];
     for (const e of db.events.filter((e) => e.request_id === r.id)) {
       items.push({
         id: `e-${e.id}`,
         at: e.created_at,
-        actor: personView(viewer, r, e.actor_id),
+        actor: personView(viewer, r, e.actor_id, e.by_author),
         kind: e.kind,
         from_status: e.from_status,
         to_status: e.to_status,
@@ -236,15 +263,18 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       });
     }
     for (const c of db.comments.filter((c) => c.request_id === r.id)) {
-      if (c.kind === 'internal' && !staff) continue; // authors never receive internal notes
-      items.push({ id: `c-${c.id}`, at: c.created_at, actor: personView(viewer, r, c.author_id), kind: c.kind, text: c.body });
+      if (c.kind === 'internal' && !seesInternal(viewer, r)) continue; // authors never receive internal notes
+      items.push({ id: `c-${c.id}`, at: c.created_at, actor: personView(viewer, r, c.author_id, c.by_author), kind: c.kind, text: c.body });
     }
     items.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
 
     const terminal = TERMINAL.includes(r.status);
     let allowed: Status[] = [];
     const kinds: CommentKind[] = [];
-    if (staff) {
+    if (isObserver(viewer, r)) {
+      // CR6: managers of other departments may only write to the author and leave internal notes.
+      kinds.push('comment', 'internal');
+    } else if (staff) {
       // Own requests cannot be processed (409 on the status endpoint), so no actions are offered.
       allowed = isAuthor ? [] : TRANSITIONS[r.status].filter((s) => s !== 'needs_info');
       if (!terminal) kinds.push('comment');
@@ -253,7 +283,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         if (!isAuthor) allowed = [...allowed, 'needs_info'];
       }
       if (!isAuthor && (r.status === 'in_review' || r.status === 'decision' || r.status === 'in_progress')) kinds.push('report');
-      kinds.push('internal');
+      if (!isAuthor) kinds.push('internal');
     }
     if (isAuthor && !terminal) {
       if (!kinds.includes('comment')) kinds.unshift('comment');
@@ -276,9 +306,8 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       can_assign: staff && !terminal,
       similar: {
         count: sims.length,
-        items: staff
+        items: isStaff(viewer) && !isAuthor
           ? sims
-              .filter((x) => inStaffScope(viewer, x.o))
               .slice(0, 5)
               .map((x) => ({ id: x.o.id, number: x.o.number, title: x.o.title, status: x.o.status, score: Math.round(x.score * 100) / 100 }))
           : undefined,
@@ -297,8 +326,26 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     if (head) return [head];
     return db.users.filter((u) => u.role === 'admin' && u.active).map((u) => u.id);
   }
+  /** Only the owner's reaction counts as a first response (observer comments never do, CR6). */
   function touchFirstResponse(actor: MUser, r: MRequest) {
-    if (!r.first_responded_at && actor.id !== r.author_id) r.first_responded_at = iso();
+    if (!r.first_responded_at && !isAuthorOf(actor, r) && inStaffScope(actor, r)) r.first_responded_at = iso();
+  }
+  /** Anonymous token holder (CR2): maps the token to its request; identical 404 for any miss; 10/min per endpoint. */
+  const anonHits = new Map<string, number[]>();
+  function anonAllow(op: string) {
+    const t = now();
+    const recent = (anonHits.get(op) ?? []).filter((x) => t - x < 60_000);
+    if (recent.length >= 10) throw new HttpError(429, 'too_many_requests', 'Слишком много попыток. Подождите минуту и попробуйте снова.');
+    recent.push(t);
+    anonHits.set(op, recent);
+  }
+  function resolveToken(token: unknown): { r: MRequest; viewer: MUser } {
+    const canon = typeof token === 'string' ? canonicalToken(token) : null;
+    const r = canon ? db.requests.find((x) => x.is_anonymous && x.anon_token === canon) : undefined;
+    if (!r) throw notFound();
+    anonTarget = r.id;
+    const viewer: MUser = { id: ANON_SELF, name: ANON_NAME, email: '', password: '', role: 'employee', department_id: null, active: true, title: '' };
+    return { r, viewer };
   }
   function getVisible(viewer: MUser, id: number): MRequest {
     const r = db.requests.find((x) => x.id === id);
@@ -324,7 +371,8 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     if (to === 'needs_info') r.paused_at = iso();
     if (from === 'needs_info' && to !== 'needs_info') resumeFromPause(r);
     if (TERMINAL.includes(to)) r.closed_at = iso();
-    db.events.push({ id: nextId(), request_id: r.id, actor_id: actor.id, kind: 'status_changed', from_status: from, to_status: to, text, created_at: iso() });
+    const byAuthor = isAuthorOf(actor, r);
+    db.events.push({ id: nextId(), request_id: r.id, actor_id: byAuthor && r.author_id === null ? null : actor.id, by_author: byAuthor, kind: 'status_changed', from_status: from, to_status: to, text, created_at: iso() });
   }
 
   function matchTab(r: MRequest, tab: InboxTab): boolean {
@@ -351,7 +399,8 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
 
   function validateCreate(p: Partial<CreateRequest>): Record<string, string> {
     const f: Record<string, string> = {};
-    if (p.type !== 'problem' && p.type !== 'idea') f.type = 'Выберите тип обращения';
+    if (!TYPES.includes(p.type as RequestType)) f.type = 'Выберите тип обращения';
+    if (p.priority !== undefined && !PRIORITIES.includes(p.priority)) f.priority = 'Неверный приоритет';
     const c = typeof p.category_id === 'number' ? cat(p.category_id) : undefined;
     if (!c || !c.active) f.category_id = 'Выберите категорию';
     const title = (p.title ?? '').trim();
@@ -376,7 +425,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     const f: Record<string, string> = {};
     if (!cat(Number(b.category_id))) f.category_id = 'Выберите категорию';
     if (!dept(Number(b.department_id))) f.department_id = 'Выберите отдел';
-    if (b.request_type !== null && b.request_type !== undefined && b.request_type !== 'problem' && b.request_type !== 'idea')
+    if (b.request_type !== null && b.request_type !== undefined && !TYPES.includes(b.request_type as RequestType))
       f.request_type = 'Неверный тип';
     for (const k of ['first_response_hours', 'resolution_hours']) {
       const v = Number(b[k]);
@@ -390,7 +439,8 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     const from = q.get('from') ? Date.parse(`${q.get('from')}T00:00:00`) : -Infinity;
     const to = q.get('to') ? Date.parse(`${q.get('to')}T23:59:59`) : Infinity;
     const depId = q.get('department_id') ? Number(q.get('department_id')) : null;
-    const scoped = db.requests.filter((r) => inStaffScope(viewer, r) && (depId === null || r.department_id === depId));
+    // CR6: managers see company-wide analytics (department filter optional); admin all.
+    const scoped = db.requests.filter((r) => isStaff(viewer) && (depId === null || r.department_id === depId));
     const inPeriod = scoped.filter((r) => {
       const t = Date.parse(r.created_at);
       return t >= from && t <= to;
@@ -400,8 +450,18 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     const hours = responded
       .map((r) => (Date.parse(r.first_responded_at!) - Date.parse(r.created_at)) / H)
       .sort((a, b) => a - b);
-    const pct = (p: number) => (hours.length ? Math.round(hours[Math.min(hours.length - 1, Math.floor(p * (hours.length - 1)))] * 10) / 10 : null);
+    const median = (xs: number[]) => {
+      if (!xs.length) return null;
+      const m = Math.floor(xs.length / 2);
+      const v = xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2;
+      return Math.round(v * 10) / 10;
+    };
+    const onTime = responded.filter((r) => Date.parse(r.first_responded_at!) <= Date.parse(r.first_response_due)).length;
     const closed = inPeriod.filter((r) => TERMINAL.includes(r.status));
+    const resolution = closed
+      .filter((r) => r.closed_at)
+      .map((r) => (Date.parse(r.closed_at!) - Date.parse(r.created_at)) / H)
+      .sort((a, b) => a - b);
     const statuses: Status[] = ['new', 'in_review', 'needs_info', 'decision', 'in_progress', 'implemented', 'declined', 'duplicate', 'closed'];
     const catNames = [...new Set(inPeriod.map((r) => r.category_id))];
     const depNames = [...new Set(inPeriod.map((r) => r.department_id))];
@@ -423,14 +483,21 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       kpis: {
         total,
         reviewed_share: total ? responded.length / total : 0,
-        median_first_response_hours: pct(0.5),
-        p90_first_response_hours: pct(0.9),
+        median_first_response_hours: median(hours),
+        first_response_on_time_share: responded.length ? Math.round((onTime / responded.length) * 1000) / 1000 : null,
+        first_response_sample: responded.length,
+        median_resolution_hours: median(resolution),
         outcome_share: closed.length ? closed.filter((r) => r.result_text).length / closed.length : 0,
         implemented_count: inPeriod.filter((r) => r.status === 'implemented').length,
         overdue_count: scoped.filter(isOverdue).length,
         auto_routed_share: total ? inPeriod.filter((r) => r.routing_source === 'rule').length / total : 0,
       },
       by_status: statuses.map((s) => ({ status: s, count: inPeriod.filter((r) => r.status === s).length })),
+      by_type: TYPES.map((t) => ({
+        type: t,
+        count: inPeriod.filter((r) => r.type === t).length,
+        closed: inPeriod.filter((r) => r.type === t && TERMINAL.includes(r.status)).length,
+      })),
       by_category: catNames
         .map((id) => {
           const rs = inPeriod.filter((r) => r.category_id === id);
@@ -469,7 +536,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     for (const r of pool) {
       if (used.has(r.id)) continue;
       const members = [r, ...pool.filter((o) => o.id !== r.id && !used.has(o.id) && similarity(r, o) >= SIMILAR_THRESHOLD)];
-      if (members.length < 2) continue;
+      if (members.length < 3) continue; // backend MinGroupSize = 3
       members.forEach((m) => used.add(m.id));
       let sum = 0;
       let n = 0;
@@ -488,6 +555,11 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       });
     }
     return groups.sort((a, b) => b.count - a.count || b.score - a.score);
+  }
+
+  function attachmentBody(r: MRequest, id: number): MockResponse {
+    const a = r.attachments.find((x) => x.id === id)!;
+    return { status: 200, text: `Демо-вложение «${a.filename}» (${a.size} байт)`, contentType: 'text/plain; charset=utf-8', headers: { 'Content-Disposition': `attachment; filename="${encodeURIComponent(a.filename)}"` } };
   }
 
   type Handler = (req: MockRequest, m: RegExpMatchArray) => MockResponse;
@@ -525,8 +597,8 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       () =>
         ok({
           password_hint: DEMO_PASSWORD,
-          users: [1, 2, 3, 4].map((id) => {
-            const u = user(id)!;
+          users: DEMO_LOGINS.map((login) => {
+            const u = db.users.find((x) => x.email === `${login}@modus.demo`)!;
             return { email: u.email, name: u.name, role: u.role, title: u.title };
           }),
         }),
@@ -541,6 +613,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
           departments: db.departments.map((d) => ({ ...d, head_name: user(d.head_user_id)?.name ?? null })),
           statuses: (Object.keys(STATUS_LABEL) as Status[]).map((s) => ({ id: s, label: STATUS_LABEL[s], terminal: TERMINAL.includes(s) })),
           limits: LIMITS,
+          features: { telegram: db.telegramEnabled, priority: true },
           assignable_users: isStaff(u)
             ? db.users
                 .filter((x) => x.active && isStaff(x) && x.department_id !== null)
@@ -557,7 +630,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const cid = Number(req.query.get('category_id'));
         const type = req.query.get('type') ?? '';
         if (!cat(cid)) throw bad({ category_id: 'Выберите категорию' });
-        if (type !== 'problem' && type !== 'idea') throw bad({ type: 'Выберите тип' });
+        if (!TYPES.includes(type as RequestType)) throw bad({ type: 'Выберите тип' });
         const rule = route(cid, type);
         const d = rule ? dept(rule.department_id) : undefined;
         const fr = rule?.first_response_hours ?? 24;
@@ -582,16 +655,24 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const scope = q.get('scope');
         if (scope !== 'mine' && scope !== 'inbox' && scope !== 'all') throw bad({ scope: 'Неверный scope' });
         if (scope !== 'mine' && !isStaff(u)) throw forbidden();
+        // mine: own NAMED requests (anonymous ones have no author link); inbox: owned; all: every request
+        // (CR6: managers too; mine_scope=true keeps the owned ones).
         let base =
           scope === 'mine'
             ? db.requests.filter((r) => r.author_id === u.id)
-            : db.requests.filter((r) => inStaffScope(u, r));
+            : scope === 'inbox' || q.get('mine_scope') === 'true'
+              ? db.requests.filter((r) => inStaffScope(u, r))
+              : db.requests.filter((r) => canSee(u, r));
         const status = q.get('status');
         const cid = q.get('category_id');
         const did = q.get('department_id');
         const assignee = q.get('assignee');
         const text = q.get('q')?.trim().toLowerCase();
         if (status) base = base.filter((r) => r.status === status);
+        const prio = q.get('priority');
+        const rtype = q.get('request_type');
+        if (prio) base = base.filter((r) => r.priority === prio);
+        if (rtype) base = base.filter((r) => r.type === rtype);
         if (cid) base = base.filter((r) => r.category_id === Number(cid));
         if (did) base = base.filter((r) => r.department_id === Number(did));
         if (assignee === 'me') base = base.filter((r) => r.assignee_id === u.id);
@@ -620,6 +701,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
           if (sort === 'newest') return b.created_at.localeCompare(a.created_at);
           if (sort === 'oldest') return a.created_at.localeCompare(b.created_at);
           if (sort === 'updated') return b.updated_at.localeCompare(a.updated_at);
+          if (sort === 'priority' && a.priority !== b.priority) return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
           // deadline: overdue first, then nearest due; closed last
           const ta = TERMINAL.includes(a.status) ? 1 : 0;
           const tb = TERMINAL.includes(b.status) ? 1 : 0;
@@ -670,6 +752,8 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const rule = route(p.category_id!, p.type!);
         const d = rule ? dept(rule.department_id) : undefined;
         const created = now();
+        const anonymous = Boolean(p.is_anonymous);
+        const token = anonymous ? newToken() : null;
         db.numberCounter += 1;
         const id = db.numberCounter;
         const r: MRequest = {
@@ -680,8 +764,10 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
           title: p.title!.trim(),
           body: p.body!.trim(),
           proposed_solution: p.proposed_solution?.trim() || null,
-          author_id: u.id,
-          is_anonymous: Boolean(p.is_anonymous),
+          author_id: anonymous ? null : u.id,
+          is_anonymous: anonymous,
+          anon_token: token ? canonicalToken(token) : null,
+          priority: (p.priority as Priority | undefined) ?? 'medium',
           department_id: d?.id ?? null,
           assignee_id: rule ? (rule.assignee_user_id ?? d?.head_user_id ?? null) : null,
           status: 'new',
@@ -699,7 +785,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
           attachments: files.map((f) => ({ id: nextId(), filename: f.name, mime: f.type || 'application/octet-stream', size: f.size })),
         };
         db.requests.push(r);
-        db.events.push({ id: nextId(), request_id: id, actor_id: u.id, kind: 'created', created_at: iso(created) });
+        db.events.push({ id: nextId(), request_id: id, actor_id: anonymous ? null : u.id, by_author: true, kind: 'created', created_at: iso(created) });
         db.events.push({
           id: nextId(),
           request_id: id,
@@ -708,8 +794,11 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
           text: d ? `Передано в отдел «${d.name}» по правилу маршрутизации` : 'Правило не найдено — передано администратору',
           created_at: iso(created + 1),
         });
-        for (const o of owners(r)) notify(o, r, rule ? 'created' : 'unrouted', `Новое обращение ${r.number}`, r.title, u.id);
-        return ok(detail(u, r), 201);
+        for (const o of owners(r)) notify(o, r, rule ? 'created' : 'unrouted', `Новое обращение ${r.number}`, r.title, anonymous ? undefined : u.id);
+        if (!anonymous) return ok(detail(u, r), 201);
+        // CR2: the creator is mapped as the token holder for this one response; the token is returned once.
+        const { viewer } = resolveToken(token);
+        return ok({ ...detail(viewer, r), anonymous_token: token }, 201);
       },
     ],
     [
@@ -748,7 +837,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const r = getStaffScoped(u, Number(m[1]));
         const b = req.json() as { status?: Status; result_text?: string; duplicate_of_id?: number };
         const to = b.status as Status;
-        if (r.author_id === u.id) throw new HttpError(409, 'conflict', 'Нельзя менять статус собственного обращения');
+        if (isAuthorOf(u, r)) throw new HttpError(409, 'conflict', 'Нельзя менять статус собственного обращения');
         const allowed = detail(u, r).allowed_statuses;
         if (!to || !allowed.includes(to) || to === 'needs_info') {
           throw new HttpError(409, 'conflict', `Нельзя перевести обращение из статуса «${STATUS_LABEL[r.status]}» в «${STATUS_LABEL[to] ?? to}»`);
@@ -816,10 +905,19 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         if (!body) throw bad({ body: 'Напишите текст сообщения' });
         if (body.length > 4000) throw bad({ body: 'Не больше 4000 символов' });
         const kinds = detail(u, r).allowed_comment_kinds;
-        if (!b.kind || !kinds.includes(b.kind)) throw new HttpError(409, 'conflict', 'Сейчас нельзя отправить такое сообщение');
+        if (!b.kind || !kinds.includes(b.kind)) {
+          if (isObserver(u, r)) throw forbidden();
+          throw new HttpError(409, 'conflict', 'Сейчас нельзя отправить такое сообщение');
+        }
         db.comments.push({ id: nextId(), request_id: r.id, author_id: u.id, kind: b.kind, body, created_at: iso() });
         r.updated_at = iso();
         if (b.kind !== 'internal') touchFirstResponse(u, r);
+        if (isObserver(u, r)) {
+          // CR6: observer comment -> named author and owners; observer note -> owners.
+          if (b.kind === 'comment') notify(r.author_id, r, 'comment', `Новый комментарий в ${r.number}`, body.slice(0, 120), u.id);
+          for (const o of owners(r)) notify(o, r, b.kind, `Сообщение от руководителя другого отдела: ${r.number}`, body.slice(0, 120), u.id);
+          return ok(detail(u, r), 201);
+        }
         if (b.kind === 'question') {
           setStatus(u, r, 'needs_info', null);
           notify(r.author_id, r, 'question', `Нужен ваш ответ по ${r.number}`, body.slice(0, 120), u.id);
@@ -843,16 +941,23 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const r = getStaffScoped(u, Number(m[1]));
         const b = req.json() as { theme_id?: number; title?: string };
         let theme = b.theme_id ? db.themes.find((t) => t.id === b.theme_id) : undefined;
-        if (b.theme_id && !theme) throw new HttpError(404, 'not_found', 'Тема не найдена');
-        if (!theme) {
+        if (b.theme_id === undefined || b.theme_id === null) {
           const title = (b.title ?? '').trim();
-          if (!title) throw bad({ title: 'Выберите тему или введите название новой' });
-          theme = { id: nextId(), title, created_at: iso() };
-          db.themes.push(theme);
+          if (title.length < 2 || title.length > 140) throw bad({ title: 'Название темы: от 2 до 140 символов' });
+          theme = db.themes.find((t) => t.title === title);
+          if (!theme) {
+            theme = { id: nextId(), title, created_at: iso() };
+            db.themes.push(theme);
+          }
+        } else {
+          // Like the backend: a theme the manager has no owned request in answers as not found.
+          const accessible = theme && (u.role === 'admin' || db.requests.some((x) => x.theme_id === theme!.id && inStaffScope(u, x)));
+          if (!theme || !accessible) throw notFound();
         }
+        if (r.theme_id === theme.id) return ok(detail(u, r));
         r.theme_id = theme.id;
         r.updated_at = iso();
-        db.events.push({ id: nextId(), request_id: r.id, actor_id: u.id, kind: 'theme_linked', text: theme.title, created_at: iso() });
+        db.events.push({ id: nextId(), request_id: r.id, actor_id: u.id, kind: 'theme_linked', text: `Тема: ${theme.title}`, created_at: iso() });
         return ok(detail(u, r));
       },
     ],
@@ -864,8 +969,81 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const id = Number(m[1]);
         const r = db.requests.find((x) => x.attachments.some((a) => a.id === id));
         if (!r || !canSee(u, r)) throw notFound();
-        const a = r.attachments.find((x) => x.id === id)!;
-        return { status: 200, text: `Демо-вложение «${a.filename}» (${a.size} байт)`, contentType: 'text/plain; charset=utf-8', headers: { 'Content-Disposition': `attachment; filename="${encodeURIComponent(a.filename)}"` } };
+        return attachmentBody(r, id);
+      },
+    ],
+    // ---- CR2: anonymous author endpoints (no session) ----
+    [
+      'POST',
+      /^\/anonymous\/lookup$/,
+      (req) => {
+        anonAllow('lookup');
+        const { r, viewer } = resolveToken((req.json() as { token?: unknown }).token);
+        return ok(detail(viewer, r));
+      },
+    ],
+    [
+      'POST',
+      /^\/anonymous\/comments$/,
+      (req) => {
+        anonAllow('comment');
+        const b = req.json() as { token?: unknown; body?: string };
+        const body = (b.body ?? '').trim();
+        if (!body || body.length > 4000) throw bad({ body: 'Текст: от 1 до 4000 символов' });
+        const { r, viewer } = resolveToken(b.token);
+        if (TERMINAL.includes(r.status)) throw new HttpError(409, 'conflict', `Обращение закрыто. Создайте новое обращение со ссылкой на номер ${r.number}`);
+        const kind: CommentKind = r.status === 'needs_info' ? 'answer' : 'comment';
+        db.comments.push({ id: nextId(), request_id: r.id, author_id: null, by_author: true, kind, body, created_at: iso() });
+        r.updated_at = iso();
+        if (kind === 'answer') setStatus(viewer, r, 'in_review', null);
+        for (const o of owners(r)) notify(o, r, kind, kind === 'answer' ? `Автор ответил: ${r.number}` : `Новый комментарий в ${r.number}`, body.slice(0, 120));
+        return ok(detail(viewer, r), 201);
+      },
+    ],
+    [
+      'GET',
+      /^\/anonymous\/attachments\/(\d+)$/,
+      (req, m) => {
+        anonAllow('attachment');
+        const { r } = resolveToken(req.header?.('X-Anonymous-Token') ?? '');
+        const id = Number(m[1]);
+        if (!r.attachments.some((a) => a.id === id)) throw notFound();
+        return attachmentBody(r, id);
+      },
+    ],
+    // ---- CR4: Telegram ----
+    [
+      'GET',
+      /^\/telegram\/status$/,
+      () => {
+        const u = me();
+        if (!db.telegramEnabled) return ok({ enabled: false, bot_url: null, bot_username: null, linked: false, linked_at: null, telegram_username: null });
+        const l = db.telegramLinks[u.id];
+        return ok({
+          enabled: true,
+          bot_url: BOT_URL,
+          bot_username: 'modus_voice_demo_bot',
+          linked: Boolean(l),
+          linked_at: l?.linked_at ?? null,
+          telegram_username: l?.username ?? null,
+        });
+      },
+    ],
+    [
+      'GET',
+      /^\/telegram\/link-code$/,
+      () => {
+        const u = me();
+        if (!db.telegramEnabled) throw notFound();
+        if (db.telegramLinks[u.id]) throw new HttpError(409, 'conflict', 'Аккаунт уже привязан к Telegram');
+        const period = 20_000;
+        const slot = Math.floor(now() / period);
+        return ok({
+          code: linkCode(u.id, slot),
+          expires_in_seconds: Math.max(1, Math.ceil(((slot + 1) * period - now()) / 1000)),
+          period_seconds: 20,
+          bot_url: BOT_URL,
+        });
       },
     ],
     [
@@ -908,7 +1086,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const u = staffOnly();
         return ok({
           items: db.themes.map((t) => {
-            const rs = db.requests.filter((r) => r.theme_id === t.id && inStaffScope(u, r));
+            const rs = db.requests.filter((r) => r.theme_id === t.id && canSee(u, r));
             return {
               id: t.id,
               title: t.title,
@@ -1085,6 +1263,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
   ];
 
   return function handle(req: MockRequest): MockResponse {
+    anonTarget = null;
     for (const [method, re, fn] of routes) {
       if (method !== req.method) continue;
       const m = req.path.match(re);
@@ -1092,6 +1271,19 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     }
     throw notFound();
   };
+}
+
+const BOT_URL = 'https://t.me/modus_voice_demo_bot';
+const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+/** Deterministic 6-char code per user and 20 s slot (alphabet without 0 O 1 I L, like the backend). */
+export function linkCode(userId: number, slot: number): string {
+  let x = (userId * 2654435761 + slot * 40503) >>> 0;
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    x = (x * 1103515245 + 12345) >>> 0;
+    out += CODE_ALPHABET[(x >>> 16) % CODE_ALPHABET.length];
+  }
+  return out;
 }
 
 function inRange(isoStr: string, from: number, to: number) {

@@ -1,19 +1,17 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
-import { TriangleAlert, Lightbulb, Send, Eraser, Check, CircleAlert } from 'lucide-react';
+import { TriangleAlert, Lightbulb, Send, Eraser, Check, CircleAlert, ThumbsUp } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
 import { qk, useMeta } from '@/shared/api/queries';
-import type { Category, Meta } from '@/shared/api/types';
-import { cn } from '@/shared/lib/cn';
+import type { Meta, Priority } from '@/shared/api/types';
 import { formatDateTime } from '@/shared/lib/format';
 import { useDebounced } from '@/shared/lib/useDebounced';
 import { ru } from '@/shared/i18n/ru';
 import {
   Button,
-  CategoryIcon,
   Counter,
   ErrorState,
   FormField,
@@ -32,6 +30,9 @@ import { EMPTY_VALUES, makeSubmitSchema, SOLUTION_MAX, toPayload, type SubmitVal
 import { FileDrop } from './FileDrop';
 import { NextStepsPanel } from './NextStepsPanel';
 import { clearDraft, loadDraft, saveDraft } from './draft';
+import { CategoryCombobox } from './CategoryCombobox';
+import { rememberCreated } from './createdStore';
+import { saveAnonymousRequest } from '@/features/anonymous/deviceStore';
 
 export default function SubmitPage() {
   useDocumentTitle(ru.submit.title);
@@ -44,11 +45,7 @@ export default function SubmitPage() {
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex flex-col gap-6">
               <Skeleton className="h-12" />
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-                {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <Skeleton key={i} className="h-24" />
-                ))}
-              </div>
+              <Skeleton className="h-11" />
               <Skeleton className="h-10" />
               <Skeleton className="h-36" />
             </div>
@@ -76,7 +73,15 @@ function SubmitForm({ meta }: { meta: Meta }) {
     const d = loadDraft(user.id);
     if (!d) return EMPTY_VALUES;
     const validCat = meta.categories.some((c) => c.active && c.id === d.category_id);
-    return { ...EMPTY_VALUES, ...d, category_id: validCat ? d.category_id! : EMPTY_VALUES.category_id };
+    const validType = d.type === 'problem' || d.type === 'idea' || d.type === 'feedback';
+    const validPrio = d.priority === 'low' || d.priority === 'medium' || d.priority === 'high';
+    return {
+      ...EMPTY_VALUES,
+      ...d,
+      type: validType ? d.type! : EMPTY_VALUES.type,
+      priority: validPrio ? d.priority! : EMPTY_VALUES.priority,
+      category_id: validCat ? d.category_id! : EMPTY_VALUES.category_id,
+    };
   });
   const [restored, setRestored] = useState(initial !== EMPTY_VALUES);
   const [files, setFiles] = useState<File[]>([]);
@@ -110,8 +115,15 @@ function SubmitForm({ meta }: { meta: Meta }) {
     onSuccess: (r) => {
       clearDraft(user.id);
       qc.invalidateQueries({ queryKey: qk.requests });
-      qc.setQueryData(qk.request(r.id), r);
       toast.success(ru.submit.toastCreated(r.number));
+      if (r.anonymous_token) {
+        // CR2: the token is returned once. Keep it in memory for the success screen and on this device;
+        // never in the query cache, the URL or history state. The session cannot read this request (404).
+        saveAnonymousRequest({ id: r.id, number: r.number, title: r.title, token: r.anonymous_token, created_at: r.created_at });
+        rememberCreated(r);
+      } else {
+        qc.setQueryData(qk.request(r.id), r);
+      }
       navigate(`/new/done/${r.id}`, { replace: false });
     },
     onError: (e) => {
@@ -122,6 +134,7 @@ function SubmitForm({ meta }: { meta: Meta }) {
           title: 'title',
           body: 'body',
           proposed_solution: 'proposed_solution',
+          priority: 'priority',
         };
         let first: keyof SubmitValues | null = null;
         for (const [k, msg] of Object.entries(e.fields)) {
@@ -131,7 +144,8 @@ function SubmitForm({ meta }: { meta: Meta }) {
             first ??= map[k];
           }
         }
-        if (first && first !== 'type' && first !== 'category_id' && first !== 'is_anonymous') setFocus(first);
+        if (first === 'category_id') document.getElementById('category-input')?.focus();
+        else if (first && first !== 'type' && first !== 'is_anonymous' && first !== 'priority') setFocus(first);
         setFormError(ru.errors.fixFields);
       } else {
         setFormError(e instanceof Error ? e.message : ru.errors.generic);
@@ -150,7 +164,7 @@ function SubmitForm({ meta }: { meta: Meta }) {
     // Focus the first invalid field in visual order.
     const order: (keyof SubmitValues)[] = ['type', 'category_id', 'title', 'body', 'proposed_solution'];
     const firstKey = order.find((k) => form.formState.errors[k]);
-    if (firstKey === 'category_id') document.getElementById('category-group')?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
+    if (firstKey === 'category_id') document.getElementById('category-input')?.focus();
     else if (firstKey && firstKey !== 'type') setFocus(firstKey);
   }
 
@@ -166,6 +180,7 @@ function SubmitForm({ meta }: { meta: Meta }) {
   const titleLen = values.title?.length ?? 0;
   const bodyLen = values.body?.length ?? 0;
   const solLen = values.proposed_solution?.length ?? 0;
+  const type = values.type ?? 'problem';
   const dirty = Boolean(values.title || values.body || values.proposed_solution || values.category_id || files.length);
 
   return (
@@ -190,12 +205,24 @@ function SubmitForm({ meta }: { meta: Meta }) {
             render={({ field }) => (
               <div className="flex flex-col gap-2">
                 <SegmentedControl
+                  wrap
                   aria-label={ru.submit.type}
                   value={field.value}
                   onChange={field.onChange}
                   options={[
-                    { value: 'problem', label: ru.types.problem, icon: <TriangleAlert className="h-4 w-4" aria-hidden="true" /> },
-                    { value: 'idea', label: ru.types.idea, icon: <Lightbulb className="h-4 w-4" aria-hidden="true" /> },
+                    { value: 'problem', label: ru.types.problem, icon: <TriangleAlert className="h-4 w-4 shrink-0 max-lg:hidden" aria-hidden="true" /> },
+                    { value: 'idea', label: ru.types.idea, icon: <Lightbulb className="h-4 w-4 shrink-0 max-lg:hidden" aria-hidden="true" /> },
+                    {
+                      value: 'feedback',
+                      label: (
+                        <>
+                          <span className="sm:hidden">{ru.typesShort.feedback}</span>
+                          <span className="max-sm:hidden">{ru.types.feedback}</span>
+                        </>
+                      ),
+                      ariaLabel: ru.types.feedback,
+                      icon: <ThumbsUp className="h-4 w-4 shrink-0 max-lg:hidden" aria-hidden="true" />,
+                    },
                   ]}
                 />
                 <p className="text-sm text-muted">{ru.typeHints[field.value]}</p>
@@ -204,20 +231,26 @@ function SubmitForm({ meta }: { meta: Meta }) {
           />
         </FormField>
 
-        <FormField label={ru.submit.category} hint={ru.submit.categoryHint} asFieldset error={formState.errors.category_id?.message}>
+        <FormField
+          id="category-input"
+          label={ru.submit.category}
+          hint={ru.submit.categoryHint}
+          error={formState.errors.category_id?.message}
+          aside={<span className="tabular text-xs text-muted">{ru.submit.categoryCount(categories.length)}</span>}
+        >
           <Controller
             control={control}
             name="category_id"
-            render={({ field, fieldState }) => (
+            render={({ field }) => (
               <>
-                <CategoryPicker
+                <CategoryCombobox
                   categories={categories}
                   value={field.value}
                   onChange={(v) => {
                     field.onChange(v);
                     field.onBlur();
                   }}
-                  invalid={Boolean(fieldState.error)}
+                  onBlur={field.onBlur}
                 />
                 {/* Mobile: the full "what happens next" panel is far below, so show the routing right under the choice. */}
                 {selectedCategory && preview.data && (
@@ -242,22 +275,40 @@ function SubmitForm({ meta }: { meta: Meta }) {
         </FormField>
 
         <FormField
-          label={ru.submit.body}
-          hint={ru.submit.bodyHint}
+          label={ru.submit.bodyByType[type]}
+          hint={ru.submit.bodyHintByType[type]}
           error={formState.errors.body?.message}
           aside={<Counter value={bodyLen} max={limits.body_max} />}
         >
           <Textarea {...register('body')} rows={6} />
         </FormField>
 
-        <FormField
-          label={ru.submit.solution}
-          hint={ru.submit.solutionHint}
-          optional
-          error={formState.errors.proposed_solution?.message}
-          aside={solLen > 0 ? <Counter value={solLen} max={SOLUTION_MAX} /> : undefined}
-        >
-          <Textarea {...register('proposed_solution')} rows={3} />
+        {type !== 'feedback' && (
+          <FormField
+            label={type === 'idea' ? ru.submit.solutionIdea : ru.submit.solution}
+            hint={ru.submit.solutionHint}
+            optional
+            error={formState.errors.proposed_solution?.message}
+            aside={solLen > 0 ? <Counter value={solLen} max={SOLUTION_MAX} /> : undefined}
+          >
+            <Textarea {...register('proposed_solution')} rows={3} />
+          </FormField>
+        )}
+
+        <FormField label={ru.submit.priority} hint={ru.submit.priorityHint} optional asFieldset error={formState.errors.priority?.message}>
+          <Controller
+            control={control}
+            name="priority"
+            render={({ field }) => (
+              <SegmentedControl<Priority>
+                aria-label={ru.submit.priority}
+                className="sm:max-w-md"
+                value={field.value}
+                onChange={field.onChange}
+                options={(['low', 'medium', 'high'] as Priority[]).map((p) => ({ value: p, label: ru.priorities[p] }))}
+              />
+            )}
+          />
         </FormField>
 
         <FileDrop
@@ -316,77 +367,5 @@ function SubmitForm({ meta }: { meta: Meta }) {
         <NextStepsPanel category={selectedCategory} type={values.type} anonymous={Boolean(values.is_anonymous)} preview={preview} />
       </aside>
     </form>
-  );
-}
-
-function CategoryPicker({
-  categories,
-  value,
-  onChange,
-  invalid,
-}: {
-  categories: Category[];
-  value: number | undefined;
-  onChange: (id: number) => void;
-  invalid: boolean;
-}) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([]);
-  const active = Math.max(
-    0,
-    categories.findIndex((c) => c.id === value),
-  );
-  function onKey(e: KeyboardEvent, i: number) {
-    let n = -1;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') n = (i + 1) % categories.length;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') n = (i - 1 + categories.length) % categories.length;
-    if (n >= 0) {
-      e.preventDefault();
-      onChange(categories[n].id);
-      refs.current[n]?.focus();
-    }
-  }
-  return (
-    <div id="category-group" role="radiogroup" aria-label={ru.submit.category} aria-invalid={invalid || undefined} className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-3">
-      {categories.map((c, i) => {
-        const selected = c.id === value;
-        return (
-          <button
-            key={c.id}
-            ref={(el) => {
-              refs.current[i] = el;
-            }}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            tabIndex={i === active ? 0 : -1}
-            onClick={() => onChange(c.id)}
-            onKeyDown={(e) => onKey(e, i)}
-            className={cn(
-              'group relative flex min-h-11 items-start gap-2 rounded-xl border bg-surface p-3 text-left transition-[border-color,background-color,box-shadow] duration-150 sm:gap-3 sm:p-4',
-              selected
-                ? 'border-brand bg-brand-soft/60 ring-1 ring-brand'
-                : invalid
-                  ? 'border-danger/60 hover:border-danger'
-                  : 'border-border hover:border-border-strong hover:shadow-sm',
-            )}
-          >
-            <span
-              className={cn(
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 sm:h-9 sm:w-9',
-                selected ? 'bg-brand text-on-brand' : 'bg-surface-2 text-muted group-hover:text-text',
-              )}
-              aria-hidden="true"
-            >
-              <CategoryIcon name={c.icon} className="h-5 w-5" />
-            </span>
-            <span className="min-w-0 pr-4">
-              <span className="block break-words text-sm font-semibold text-text">{c.name}</span>
-              <span className="mt-0.5 block text-xs leading-snug text-muted max-sm:hidden">{c.description}</span>
-            </span>
-            {selected && <Check className="absolute right-2 top-2 h-4 w-4 text-brand sm:right-3 sm:top-3" aria-hidden="true" />}
-          </button>
-        );
-      })}
-    </div>
   );
 }

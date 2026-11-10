@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as RTooltip from '@radix-ui/react-tooltip';
-import { Suspense, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
 import { Lock, SearchX } from 'lucide-react';
 import type { Role } from '@/shared/api/types';
@@ -12,6 +12,10 @@ import LoginPage from '@/features/auth/LoginPage';
 import { AppShell, PageFallback } from './AppShell';
 import { appRoutes } from './routes';
 import { Logo } from './Logo';
+
+// CR2 public pages: reachable without a session (anonymous authors use them from any device).
+const AnonymousLookupPage = lazy(() => import('@/features/anonymous/AnonymousPages').then((m) => ({ default: m.AnonymousLookupPage })));
+const AnonymousRequestPage = lazy(() => import('@/features/anonymous/AnonymousPages').then((m) => ({ default: m.AnonymousRequestPage })));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading, error, refetch } = useAuth();
@@ -79,6 +83,22 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/anonymous"
+        element={
+          <Suspense fallback={<BootScreen />}>
+            <AnonymousLookupPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/anonymous/request"
+        element={
+          <Suspense fallback={<BootScreen />}>
+            <AnonymousRequestPage />
+          </Suspense>
+        }
+      />
       <Route
         element={
           <RequireAuth>

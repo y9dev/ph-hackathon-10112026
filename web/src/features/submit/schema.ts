@@ -10,7 +10,8 @@ export const SOLUTION_MAX = 2000;
 export function makeSubmitSchema(limits: Pick<MetaLimits, 'title_max' | 'body_max'>) {
   const e = ru.submit.errors;
   return z.object({
-    type: z.enum(['problem', 'idea'], { errorMap: () => ({ message: e.type }) }),
+    type: z.enum(['problem', 'idea', 'feedback'], { errorMap: () => ({ message: e.type }) }),
+    priority: z.enum(['low', 'medium', 'high']),
     category_id: z.number({ invalid_type_error: e.category, required_error: e.category }).int().positive(e.category),
     title: z.string().trim().min(TITLE_MIN, e.titleMin(TITLE_MIN)).max(limits.title_max, e.titleMax(limits.title_max)),
     body: z.string().trim().min(BODY_MIN, e.bodyMin(BODY_MIN)).max(limits.body_max, e.bodyMax(limits.body_max)),
@@ -23,6 +24,7 @@ export type SubmitValues = z.infer<ReturnType<typeof makeSubmitSchema>>;
 
 export const EMPTY_VALUES: SubmitValues = {
   type: 'problem',
+  priority: 'medium',
   category_id: undefined as unknown as number,
   title: '',
   body: '',
@@ -37,8 +39,10 @@ export function toPayload(v: SubmitValues): CreateRequest {
     category_id: v.category_id,
     title: v.title.trim(),
     body: v.body.trim(),
-    ...(sol ? { proposed_solution: sol } : {}),
+    // Feedback has no "proposed solution" field in the form.
+    ...(sol && v.type !== 'feedback' ? { proposed_solution: sol } : {}),
     is_anonymous: v.is_anonymous,
+    priority: v.priority,
   };
 }
 

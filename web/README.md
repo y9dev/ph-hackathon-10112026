@@ -42,6 +42,19 @@ the AuthorView masking for anonymous requests, `allowed_statuses` / `allowed_com
 from ARCHITECTURE §11 R4, lifecycle per §12 R10: new/in_review/needs_info -> decision -> in_progress -> terminal incl. `closed`; `report` comments; 429/409/404 error cases), SLA states incl. pause in `needs_info`, routing rules, similarity groups,
 notifications and admin CRUD with 409s. State lives in `sessionStorage` (survives reloads, resets in a new tab);
 `window.__mvMockReset()` restores the seed. `?mockLatency=0` in the URL removes the artificial delay.
+The mock seed mirrors the backend seed (CR1: the 20 dataset requests, 18 categories, role-named users, password
+`Demo1234!`, demo anonymous tokens of A-005/A-017/A-018). `?mockTelegram=off` simulates a server without the bot
+(`features.telegram=false`); `window.__mvMockTelegramLink()` simulates sending the code to the bot.
+
+Real-backend E2E (port 8099, fresh data dir; relax the per-user create limit because the suite creates many requests):
+
+```sh
+npm run build
+cd ../backend && DEMO_MODE=true SEED_DEMO=true RATE_CREATE_PER_HOUR=500 DATA_DIR=<tmp> ADDR=:8099 go run ./cmd/server
+cd ../web && E2E_BASE_URL=http://localhost:8099 npm run e2e:real
+# optional Telegram check: run a fake Bot API, start the server with TELEGRAM_BOT_TOKEN=dummy
+# TELEGRAM_API_BASE=http://127.0.0.1:<port>, and pass TG_FAKE=http://127.0.0.1:<port> (POST /inject {text})
+```
 `handlers.test.ts` pins the contract-critical behaviour so the UI is never tested against a wrong mock.
 
 ## Request lifecycle UI

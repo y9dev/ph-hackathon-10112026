@@ -1,6 +1,9 @@
 /* Design tokens — docs/UX_SPECIFICATION.md §5. Light is default; dark via
    prefers-color-scheme unless the user picked a theme (html[data-theme]). */
 :root {
+  /* QR codes stay dark-on-light in every theme so phone cameras can read them (same values as light surface/text, 15.6:1). */
+  --qr-bg: #ffffff;
+  --qr-fg: #16232b;
   color-scheme: light;
   --bg: #f6f8f9;
   --surface: #ffffff;

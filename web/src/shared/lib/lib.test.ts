@@ -152,4 +152,14 @@ describe('inbox filters <-> URL', () => {
     expect(hasActiveFilters(DEFAULT_FILTERS)).toBe(false);
     expect(hasActiveFilters({ ...DEFAULT_FILTERS, q: 'a' })).toBe(true);
   });
+  it('round-trips priority, type and the manager "all requests" view with mine_scope (CR1, CR6)', () => {
+    const f = { ...DEFAULT_FILTERS, priority: 'high' as const, type: 'feedback' as const, view: 'all' as const, mine: true, sort: 'priority' as const };
+    expect(filtersFromSearch(filtersToSearch(f))).toEqual(f);
+    expect(filtersToParams(f, 'all')).toMatchObject({ scope: 'all', priority: 'high', request_type: 'feedback', mine_scope: true, sort: 'priority' });
+    // mine_scope only exists with scope=all; leaving the "all" view drops it.
+    expect(filtersToParams(f, 'inbox').mine_scope).toBeUndefined();
+    expect(patchFilters(f, { view: undefined }).mine).toBeUndefined();
+    expect(filtersFromSearch(new URLSearchParams('mine=1')).mine).toBeUndefined();
+    expect(filtersFromSearch(new URLSearchParams('priority=urgent&type=praise'))).toEqual(DEFAULT_FILTERS);
+  });
 });

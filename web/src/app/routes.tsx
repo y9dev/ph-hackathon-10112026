@@ -56,6 +56,8 @@ export const appRoutes: AppRoute[] = [
     roles: ['admin'],
     nav: { label: ru.nav.admin, short: ru.nav.adminShort, icon: Settings2, mobile: ['admin'], order: { admin: 3 } },
   },
+  // CR4: reachable only from the notifications popover/page (not in the navigation), gated on /meta features.telegram.
+  { path: '/telegram', component: lazy(() => import('@/features/telegram/TelegramPage')), roles: ALL },
   {
     path: '/notifications',
     component: lazy(() => import('@/features/notifications/NotificationsPage')),

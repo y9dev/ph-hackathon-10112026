@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loginAs, logout, moveStage, openFromInbox, ROLES, submitRequest, uniqueTitle } from './helpers';
+import { loginAs, logout, moveStage, openFromInbox, pickCategory, ROLES, submitRequest, uniqueTitle } from './helpers';
 
 test.describe('Journeys J1–J4', () => {
   test('J1 submit: employee sends a request and gets a number, owner and deadline @mobile', async ({ page }) => {
@@ -12,23 +12,25 @@ test.describe('Journeys J1–J4', () => {
     await expect(page.getByText('Минимум 5 символов')).toBeVisible();
 
     // Routing preview appears before submit.
-    await page.getByRole('radiogroup', { name: 'Категория' }).getByRole('radio').first().click();
+    await pickCategory(page);
     await expect(page.getByText(/Первый ответ — до/).filter({ visible: true }).first()).toBeVisible();
 
-    const title = uniqueTitle('Не печатает принтер');
+    const title = uniqueTitle('В заявке нет параметров');
     await page.getByLabel('Коротко о сути').fill(title);
-    await page.getByLabel('Подробное описание').fill('Общий принтер на втором этаже печатает с полосами уже неделю.');
-    await page.getByRole('switch', { name: 'Отправить анонимно' }).click();
+    await page.getByLabel('Что произошло').fill('В заявке на оборудование нет назначения и параметров, приходится уточнять.');
+    // Priority is optional, "Средний" by default.
+    await expect(page.getByRole('radio', { name: 'Средний' })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('radio', { name: 'Высокий' }).click();
     await page.getByRole('button', { name: 'Отправить', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'Спасибо! Обращение принято' })).toBeVisible();
     await expect(page.getByTestId('request-number')).toHaveText(/MV-\d+/);
     await expect(page.getByText('Первый ответ до')).toBeVisible();
-    await expect(page.getByText('Отправлено анонимно — ваше имя скрыто.')).toBeVisible();
 
     await page.getByRole('link', { name: 'Открыть обращение' }).click();
     await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
     await expect(page.getByRole('main').getByText('Новое', { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId('priority-chip').first()).toHaveText('Приоритет: Высокий');
   });
 
   test('J2 track: employee finds the request in "Мои обращения" with its timeline', async ({ page }) => {

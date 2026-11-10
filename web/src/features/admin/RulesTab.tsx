@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Pencil, Trash2, Route, TriangleAlert } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
 import { qk } from '@/shared/api/queries';
-import type { Category, RoutingRule } from '@/shared/api/types';
+import type { Category, RequestType, RoutingRule } from '@/shared/api/types';
 import { ru } from '@/shared/i18n/ru';
 import { Button, Dialog, EmptyState, ErrorState, FormField, Input, Select, Switch, useToast } from '@/shared/ui';
 import { ActiveBadge, FormAlert, TableShell, TableSkeleton, Td, Th } from './common';
@@ -13,6 +13,7 @@ import { ruleSchema, type RuleValues } from './schemas';
 
 const ANY = '__any';
 const HEAD = '__head';
+const REQUEST_TYPES: RequestType[] = ['problem', 'idea', 'feedback'];
 
 /** Active categories that no active rule covers (a rule without a type covers both). A partly covered category names the missing type. */
 export function categoriesWithoutRule(categories: Category[], rules: RoutingRule[]): string[] {
@@ -21,9 +22,10 @@ export function categoriesWithoutRule(categories: Category[], rules: RoutingRule
     const mine = rules.filter((r) => r.active && r.category_id === c.id);
     if (mine.some((r) => r.request_type === null)) continue;
     const have = new Set(mine.map((r) => r.request_type));
-    if (have.has('problem') && have.has('idea')) continue;
+    const missing = REQUEST_TYPES.filter((t) => !have.has(t));
+    if (missing.length === 0) continue;
     if (have.size === 0) out.push(c.name);
-    else out.push(`${c.name} (${ru.admin.noRuleType(ru.types[have.has('problem') ? 'idea' : 'problem'].toLowerCase())})`);
+    else out.push(`${c.name} (${ru.admin.noRuleType(missing.map((t) => ru.types[t].toLowerCase()).join(', '))})`);
   }
   return out;
 }
@@ -203,6 +205,7 @@ function RuleDialog({ rule, onClose }: { rule: RoutingRule | 'new' | null; onClo
                     { value: ANY, label: ru.admin.ruleTypeAny },
                     { value: 'problem', label: ru.types.problem },
                     { value: 'idea', label: ru.types.idea },
+                    { value: 'feedback', label: ru.types.feedback },
                   ]}
                 />
               )}

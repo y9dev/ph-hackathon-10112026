@@ -1,6 +1,6 @@
-import { Clock, AlarmClock, PauseCircle, CircleCheck, Lock, EyeOff } from 'lucide-react';
+import { Clock, AlarmClock, PauseCircle, CircleCheck, Lock, EyeOff, ChevronsUp, Equal, ChevronDown } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { SlaState, Status } from '@/shared/api/types';
+import type { Priority, SlaState, Status } from '@/shared/api/types';
 import { cn } from '@/shared/lib/cn';
 import { slaView, type SlaTone } from '@/shared/lib/sla';
 import { STATUS_ICON, statusLabel } from '@/shared/lib/status';
@@ -101,5 +101,22 @@ export function InternalBadge() {
     <Badge tone="warning" icon={<Lock className="h-3.5 w-3.5" aria-hidden="true" />}>
       {ru.timeline.internalBadge}
     </Badge>
+  );
+}
+
+const PRIORITY_ICON = { high: ChevronsUp, medium: Equal, low: ChevronDown } as const;
+
+/** Priority (CR1): icon + text; only "Высокий" is tinted, the rest stay neutral. */
+export function PriorityChip({ priority, className }: { priority: Priority | undefined | null; className?: string }) {
+  if (!priority) return null;
+  const Icon = PRIORITY_ICON[priority];
+  return (
+    <span
+      className={cn(chipBase, priority === 'high' ? TONE_STYLE.warning : TONE_STYLE.neutral, className)}
+      data-testid="priority-chip"
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{ru.priorityChip(ru.priorities[priority])}</span>
+    </span>
   );
 }

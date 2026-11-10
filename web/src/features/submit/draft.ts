@@ -26,6 +26,7 @@ export function saveDraft(userId: number, v: Partial<SubmitValues>) {
       key(userId),
       JSON.stringify({
         type: v.type,
+        priority: v.priority,
         category_id: v.category_id,
         title: v.title ?? '',
         body: v.body ?? '',

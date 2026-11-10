@@ -4,9 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/shared/api/client';
 import { qk, shouldRetry } from '@/shared/api/queries';
 import { ru } from '@/shared/i18n/ru';
-import { Button, Card, EmptyState, ErrorState, LoadingBlock, PageHeader, SegmentedControl, Skeleton, useDocumentTitle } from '@/shared/ui';
+import { Button, ButtonLink, Card, EmptyState, ErrorState, LoadingBlock, PageHeader, SegmentedControl, Skeleton, useDocumentTitle } from '@/shared/ui';
 import { NotificationItem } from './NotificationItem';
 import { POLL_MS, useMarkRead } from './api';
+import { TelegramIcon } from '@/features/telegram/TelegramIcon';
+import { useTelegramEnabled } from '@/features/telegram/useTelegramEnabled';
 
 export default function NotificationsPage() {
   useDocumentTitle(ru.notifications.title);
@@ -19,6 +21,7 @@ export default function NotificationsPage() {
   });
   const mark = useMarkRead();
   const unread = q.data?.unread_count ?? 0;
+  const telegram = useTelegramEnabled();
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -26,14 +29,23 @@ export default function NotificationsPage() {
         title={ru.notifications.title}
         lead={ru.notifications.lead}
         actions={
-          unread > 0 && (
-            <Button
-              onClick={() => mark.mutate({ all: true })}
-              loading={mark.isPending}
-              icon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
-            >
-              {ru.notifications.markAll}
-            </Button>
+          (unread > 0 || telegram) && (
+            <div className="flex flex-wrap gap-2">
+              {telegram && (
+                <ButtonLink to="/telegram" variant="ghost" icon={<TelegramIcon className="h-4 w-4 text-brand" />}>
+                  {ru.notifications.telegram}
+                </ButtonLink>
+              )}
+              {unread > 0 && (
+                <Button
+                  onClick={() => mark.mutate({ all: true })}
+                  loading={mark.isPending}
+                  icon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
+                >
+                  {ru.notifications.markAll}
+                </Button>
+              )}
+            </div>
           )
         }
       />

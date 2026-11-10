@@ -2,12 +2,12 @@ import { useMemo, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { BarChart3, Layers, AlarmClock, Tags } from 'lucide-react';
+import { BarChart3, Layers, AlarmClock, Tags, TriangleAlert, Lightbulb, ThumbsUp } from 'lucide-react';
 import { api } from '@/shared/api/client';
 import { qk, useMeta } from '@/shared/api/queries';
-import type { AnalyticsSummary, ItemsOf, Status, SuggestedGroup, Theme } from '@/shared/api/types';
+import type { AnalyticsSummary, ItemsOf, RequestType, Status, SuggestedGroup, Theme } from '@/shared/api/types';
 import { cn } from '@/shared/lib/cn';
-import { formatHours, formatPercent } from '@/shared/lib/format';
+import { formatDuration, formatHours, formatPercent } from '@/shared/lib/format';
 import { STATUS_ICON, STATUSES } from '@/shared/lib/status';
 import { ru } from '@/shared/i18n/ru';
 import {
@@ -83,7 +83,10 @@ export default function AnalyticsPage() {
   const groups = useQuery({ queryKey: qk.groups, queryFn: api.suggestedGroups });
   const themes = useQuery({ queryKey: qk.themes, queryFn: api.themes });
 
-  const departments = (meta.data?.departments ?? []).filter((d) => user.role === 'admin' || user.led_department_ids.includes(d.id));
+  // CR6: managers see company-wide analytics and may narrow it to any department.
+  const departments = (meta.data?.departments ?? []).filter(() => user.role === 'admin' || user.role === 'manager');
+  // Drill-down links: managers open "Все обращения" (their inbox shows only owned requests).
+  const inboxBase = user.role === 'manager' ? '/inbox?view=all&tab=all' : '/inbox?tab=all';
 
   function setParam(k: string, v: string | null) {
     const next = new URLSearchParams(sp);
@@ -143,7 +146,7 @@ export default function AnalyticsPage() {
           <EmptyState icon={<BarChart3 className="h-6 w-6" />} title={ru.analytics.emptyTitle} text={ru.analytics.emptyText} />
         </div>
       ) : (
-        <Dashboard data={summary.data} />
+        <Dashboard data={summary.data} inboxBase={inboxBase} />
       )}
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -154,7 +157,10 @@ export default function AnalyticsPage() {
   );
 }
 
-function Dashboard({ data }: { data: AnalyticsSummary }) {
+const TYPE_ICON: Record<RequestType, typeof TriangleAlert> = { problem: TriangleAlert, idea: Lightbulb, feedback: ThumbsUp };
+const TYPES: RequestType[] = ['problem', 'idea', 'feedback'];
+
+function Dashboard({ data, inboxBase }: { data: AnalyticsSummary; inboxBase: string }) {
   const meta = useMeta();
   const k = data.kpis;
   const catId = (name: string) => meta.data?.categories.find((c) => c.name === name)?.id;
@@ -169,10 +175,27 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
         <Kpi label={ru.analytics.kpiTotal} help={ru.analytics.kpiTotalHelp} value={String(k.total)} />
         <Kpi label={ru.analytics.kpiReviewed} help={ru.analytics.kpiReviewedHelp} value={formatPercent(k.reviewed_share)} bar={k.reviewed_share} />
         <Kpi
-          label={ru.analytics.kpiFirstResponse}
-          help={ru.analytics.kpiFirstResponseHelp}
-          value={k.median_first_response_hours === null ? '—' : formatHours(k.median_first_response_hours)}
-          sub={k.p90_first_response_hours === null ? ru.analytics.noData : ru.analytics.p90(formatHours(k.p90_first_response_hours))}
+          label={ru.analytics.kpiOnTime}
+          help={ru.analytics.kpiOnTimeHelp}
+          value={k.first_response_on_time_share === null || k.first_response_on_time_share === undefined ? '—' : formatPercent(k.first_response_on_time_share)}
+          bar={k.first_response_on_time_share ?? undefined}
+          testId="kpi-on-time"
+          lines={
+            k.first_response_on_time_share === null || k.first_response_on_time_share === undefined
+              ? [ru.analytics.kpiNoAnswers]
+              : [
+                  ru.analytics.kpiOnTimeText,
+                  ...(k.median_first_response_hours !== null ? [ru.analytics.kpiOnTimeTypical(formatHours(k.median_first_response_hours))] : []),
+                  ru.analytics.kpiOnTimeSample(k.first_response_sample ?? 0),
+                ]
+          }
+        />
+        <Kpi
+          label={ru.analytics.kpiResolution}
+          help={ru.analytics.kpiResolutionHelp}
+          value={k.median_resolution_hours === null || k.median_resolution_hours === undefined ? '—' : formatDuration(k.median_resolution_hours)}
+          testId="kpi-resolution"
+          lines={[k.median_resolution_hours === null || k.median_resolution_hours === undefined ? ru.analytics.kpiNoClosed : ru.analytics.kpiResolutionText]}
         />
         <Kpi label={ru.analytics.kpiOutcome} help={ru.analytics.kpiOutcomeHelp} value={formatPercent(k.outcome_share)} bar={k.outcome_share} />
         <Kpi label={ru.analytics.kpiImplemented} help={ru.analytics.kpiImplementedHelp} value={String(k.implemented_count)} />
@@ -182,10 +205,44 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
           value={String(k.overdue_count)}
           sub={ru.analytics.kpiOverdueSub}
           tone={k.overdue_count > 0 ? 'danger' : undefined}
-          href="/inbox?tab=all&overdue=1"
+          href={`${inboxBase}&overdue=1`}
         />
         <Kpi label={ru.analytics.kpiAutoRouted} help={ru.analytics.kpiAutoRoutedHelp} value={formatPercent(k.auto_routed_share)} bar={k.auto_routed_share} />
       </section>
+
+      {data.by_type && data.by_type.length > 0 && (
+        <section aria-labelledby="by-type-title" className="rounded-xl border border-border bg-surface p-6 shadow-sm max-sm:p-4" data-testid="by-type">
+          <h2 id="by-type-title" className="text-base font-semibold text-text">
+            {ru.analytics.byType}
+          </h2>
+          <p className="mt-1 text-sm text-muted">{ru.analytics.scopePeriod}</p>
+          <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {TYPES.map((t) => {
+              const row = data.by_type!.find((x) => x.type === t) ?? { type: t, count: 0, closed: 0 };
+              const Icon = TYPE_ICON[t];
+              const share = row.count ? row.closed / row.count : 0;
+              return (
+                <li key={t}>
+                  <Link
+                    to={`${inboxBase}&type=${t}`}
+                    className="block rounded-lg border border-border p-4 transition-colors duration-150 hover:border-border-strong hover:bg-surface-2"
+                  >
+                    <span className="flex items-center gap-2 text-sm font-medium text-muted">
+                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      {ru.types[t]}
+                    </span>
+                    <span className="tabular mt-2 block text-2xl font-semibold text-text">{row.count}</span>
+                    <span className="mt-1 block text-xs text-muted">{ru.analytics.byTypeShare(row.closed, row.count)}</span>
+                    <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-chart-track" aria-hidden="true">
+                      <span className="block h-full rounded-full bg-brand" style={{ width: `${Math.round(share * 100)}%` }} />
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
@@ -199,7 +256,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
                   label: ru.statuses[s],
                   value: data.by_status.find((b) => b.status === s)?.count ?? 0,
                   color: STATUS_COLOR[s],
-                  href: `/inbox?tab=all&status=${s}`,
+                  href: `${inboxBase}&status=${s}`,
                   icon: <Icon className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />,
                 };
               })}
@@ -226,7 +283,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
                   label: c.category,
                   value: c.count,
                   meta: `${ru.analytics.open.toLowerCase()} ${c.open} · ${ru.analytics.implemented.toLowerCase()} ${c.implemented}`,
-                  href: id ? `/inbox?tab=all&category=${id}` : undefined,
+                  href: id ? `${inboxBase}&category=${id}` : undefined,
                 };
               })}
             />
@@ -254,7 +311,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
                       )}
                     </>
                   ),
-                  href: id ? `/inbox?tab=all&department=${id}` : undefined,
+                  href: id ? `${inboxBase}&department=${id}` : undefined,
                 };
               })}
             />
@@ -268,7 +325,7 @@ function Dashboard({ data }: { data: AnalyticsSummary }) {
           description={data.overdue.length > 8 ? `${ru.analytics.scopeNow}. ${ru.analytics.overdueMore(8, data.overdue.length)}` : ru.analytics.scopeNow}
           action={
             data.overdue.length > 0 && (
-              <Link to="/inbox?tab=all&overdue=1" className="inline-flex min-h-10 items-center text-sm font-medium text-brand underline-offset-4 hover:underline max-md:min-h-11">
+              <Link to={`${inboxBase}&overdue=1`} className="inline-flex min-h-10 items-center text-sm font-medium text-brand underline-offset-4 hover:underline max-md:min-h-11">
                 {ru.analytics.openInbox}
               </Link>
             )
@@ -302,17 +359,22 @@ function Kpi({
   help,
   value,
   sub,
+  lines,
   bar,
   tone,
   href,
+  testId,
 }: {
   label: string;
   help: string;
   value: string;
   sub?: string;
+  /** Plain-language lines under the number (first one is the main explanation). */
+  lines?: string[];
   bar?: number;
   tone?: 'danger';
   href?: string;
+  testId?: string;
 }) {
   const body: ReactNode = (
     <>
@@ -321,6 +383,11 @@ function Kpi({
         {value}
       </p>
       {sub && <p className="mt-1 text-xs text-muted">{sub}</p>}
+      {lines?.map((l, i) => (
+        <p key={l} className={cn('mt-1 text-xs', i === 0 ? 'text-text' : 'text-muted')}>
+          {l}
+        </p>
+      ))}
       {bar !== undefined && (
         <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-chart-track" aria-hidden="true">
           <span className="block h-full rounded-full bg-brand" style={{ width: `${Math.round(bar * 100)}%` }} />
@@ -329,7 +396,7 @@ function Kpi({
     </>
   );
   return (
-    <div className={cn('relative rounded-xl border bg-surface p-4 shadow-sm md:p-6', tone === 'danger' ? 'border-danger/40' : 'border-border')}>
+    <div className={cn('relative rounded-xl border bg-surface p-4 shadow-sm md:p-6', tone === 'danger' ? 'border-danger/40' : 'border-border')} data-testid={testId}>
       <h3 className="mb-2 pr-8 text-sm font-medium text-muted">{label}</h3>
       <span className="absolute right-2 top-2 z-[2] md:right-3 md:top-3">
         <InfoTip label={ru.analytics.aboutMetric(label)}>{help}</InfoTip>

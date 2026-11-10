@@ -3,10 +3,10 @@
 // a new tab (or Playwright context) starts from the seed.
 import { createHandlers, HttpError, type MockRequest } from './handlers';
 import type { MockDb } from './model';
-import { buildSeed } from './seed';
+import { buildSeed, MOCK_DB_VERSION } from './seed';
 
 const KEY = 'mv-mock-db';
-const VERSION = 3;
+const VERSION = MOCK_DB_VERSION;
 
 function load(): MockDb {
   try {
@@ -37,10 +37,23 @@ export function installMock() {
   const realFetch = window.fetch.bind(window);
   const latency = Number(new URLSearchParams(location.search).get('mockLatency') ?? 280);
 
-  // Exposed for demos / debugging: window.__mvMockReset()
-  (window as unknown as { __mvMockReset: () => void }).__mvMockReset = () => {
+  // ?mockTelegram=off simulates a server without the Telegram bot (features.telegram=false).
+  const sp = new URLSearchParams(location.search);
+  if (sp.get('mockTelegram') === 'off') db.telegramEnabled = false;
+  if (sp.get('mockTelegram') === 'on') db.telegramEnabled = true;
+  save(db);
+
+  // Exposed for demos / debugging: window.__mvMockReset(), window.__mvMockTelegramLink()
+  const w = window as unknown as { __mvMockReset: () => void; __mvMockTelegramLink: (username?: string) => void };
+  w.__mvMockReset = () => {
     sessionStorage.removeItem(KEY);
     location.reload();
+  };
+  // Simulates the user sending the code to the bot: links the signed-in account.
+  w.__mvMockTelegramLink = (username = 'demo_user') => {
+    if (db.sessionUserId === null) return;
+    db.telegramLinks[db.sessionUserId] = { linked_at: new Date().toISOString(), username };
+    save(db);
   };
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -55,6 +68,7 @@ export function installMock() {
       query: url.searchParams,
       json: () => (typeof body === 'string' && body ? JSON.parse(body) : {}),
       form: body instanceof FormData ? body : null,
+      header: (name) => new Headers(init?.headers).get(name),
     };
     await sleep(latency * (0.6 + Math.random() * 0.8));
     try {

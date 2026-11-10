@@ -37,6 +37,17 @@ export function formatHours(hours: number): string {
   return `${days} дн. ${rest} ч`;
 }
 
+/** Hours → plain words for people: "менее часа", "5 часов", "1 день 4 часа", "9 дней". */
+export function formatDuration(hours: number): string {
+  const h = Math.max(0, Math.round(hours));
+  if (h < 1) return 'менее часа';
+  if (h < 24) return `${h} ${plural(h, 'час', 'часа', 'часов')}`;
+  const days = h >= 72 ? Math.round(h / 24) : Math.floor(h / 24);
+  const rest = h >= 72 ? 0 : h % 24;
+  const d = `${days} ${plural(days, 'день', 'дня', 'дней')}`;
+  return rest ? `${d} ${rest} ${plural(rest, 'час', 'часа', 'часов')}` : d;
+}
+
 /** "5 минут назад", "вчера", or a date. */
 export function formatRelative(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);

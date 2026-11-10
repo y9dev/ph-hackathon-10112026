@@ -1,14 +1,29 @@
 // Dialogs are mounted only while open (parent renders them conditionally),
 // so their local state starts fresh every time without reset effects.
-import { useRef, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
+import { Plus, Search, Tags } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError } from '@/shared/api/client';
 import { qk, useMeta } from '@/shared/api/queries';
 import type { RequestDetail, Status } from '@/shared/api/types';
 import { actionLabel, parseRequestNumber, statusLabel } from '@/shared/lib/status';
 import { ru } from '@/shared/i18n/ru';
-import { Button, Counter, Dialog, FormField, Input, Select, StatusChip, Textarea, useToast } from '@/shared/ui';
-import { useUser } from '@/features/auth/AuthProvider';
+import { cn } from '@/shared/lib/cn';
+import {
+  Button,
+  Counter,
+  Dialog,
+  ErrorState,
+  FieldError,
+  FormField,
+  Input,
+  SegmentedControl,
+  Select,
+  Skeleton,
+  StatusChip,
+  Textarea,
+  useToast,
+} from '@/shared/ui';
 import { useRequestMutations } from './useRequestMutations';
 import { COMMENT_MAX } from './Composer';
 
@@ -34,7 +49,6 @@ export function CloseDialog({
   const dupRef = useRef<HTMLInputElement>(null);
   const m = useRequestMutations(request.id).status;
   const toast = useToast();
-  const user = useUser();
   const isDup = status === 'duplicate';
 
   async function resolveDuplicateId(): Promise<number | null> {
@@ -55,7 +69,7 @@ export function CloseDialog({
     if (similar) return similar.id;
     setResolving(true);
     try {
-      const res = await api.listRequests({ scope: user.role === 'admin' ? 'all' : 'inbox', tab: 'all', q: num, page_size: 5 });
+      const res = await api.listRequests({ scope: 'all', tab: 'all', q: num, page_size: 5 });
       const hit = res.items.find((x) => x.number === num);
       if (!hit) {
         setErrors((e) => ({ ...e, dup: `${num}: ${ru.errors.requestNotFoundTitle.toLowerCase()}` }));
@@ -325,29 +339,87 @@ export function AssignDialog({ request, open, onOpenChange }: { request: Request
   );
 }
 
-const NEW_THEME = '__new';
+export const THEME_TITLE_MIN = 2;
+export const THEME_TITLE_MAX = 140;
+type ThemeMode = 'new' | 'existing';
 
+/** Client copy of the server rule (title 2..140 after trimming). */
+export function validateThemeTitle(title: string): string | undefined {
+  const t = title.trim();
+  if (t.length < THEME_TITLE_MIN || t.length > THEME_TITLE_MAX) return ru.detail.themeTitleMin;
+  return undefined;
+}
+
+/**
+ * Add a request to a theme (CR3 redesign). Two explicit options instead of one select that mixed
+ * "new" and "existing": «Новая тема» (title field only) and «Добавить в существующую» (searchable list,
+ * no portal dropdown, so nothing is clipped on mobile and Esc only closes the dialog). The dialog is
+ * mounted only while open, so every opening starts from the request's current state.
+ */
 export function ThemeDialog({ request, open, onOpenChange }: { request: RequestDetail; open: boolean; onOpenChange: (o: boolean) => void }) {
   const themes = useQuery({ queryKey: qk.themes, queryFn: api.themes, enabled: open });
-  const [choice, setChoice] = useState<string>(() => (request.theme ? String(request.theme.id) : NEW_THEME));
+  const [mode, setMode] = useState<ThemeMode>(request.theme ? 'existing' : 'new');
+  const [picked, setPicked] = useState<number | null>(request.theme?.id ?? null);
   const [title, setTitle] = useState('');
-  const [error, setError] = useState<string>();
+  const [search, setSearch] = useState('');
+  const [errors, setErrors] = useState<{ title?: string; pick?: string; form?: string }>({});
+  const titleRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const m = useRequestMutations(request.id).theme;
   const toast = useToast();
+  const searchId = `theme-search${useId().replace(/:/g, '')}`;
+
+  const all = themes.data?.items ?? [];
+  const q = search.trim().toLowerCase().replace(/ё/g, 'е');
+  const shown = q ? all.filter((t) => t.title.toLowerCase().replace(/ё/g, 'е').includes(q)) : all;
+  const alreadyIn = mode === 'existing' && picked !== null && picked === request.theme?.id;
+
+  // Autofocus only on opening; after switching the mode focus stays on the switch (arrow keys keep working).
+  const [switched, setSwitched] = useState(false);
+  function switchMode(next: ThemeMode) {
+    setMode(next);
+    setSwitched(true);
+    setErrors({});
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
     if (m.isPending) return;
-    const body = choice === NEW_THEME ? { title: title.trim() } : { theme_id: Number(choice) };
-    if (choice === NEW_THEME && !title.trim()) return setError(ru.detail.themeRequired);
+    if (mode === 'new') {
+      const err = validateThemeTitle(title);
+      if (err) {
+        setErrors({ title: err });
+        titleRef.current?.focus();
+        return;
+      }
+    } else if (picked === null) {
+      setErrors({ pick: ru.detail.themePick });
+      listRef.current?.querySelector<HTMLElement>('input[type="radio"]')?.focus();
+      if (!all.length) searchRef.current?.focus();
+      return;
+    } else if (alreadyIn) {
+      onOpenChange(false);
+      return;
+    }
+    setErrors({});
+    const body = mode === 'new' ? { title: title.trim() } : { theme_id: picked! };
     m.mutate(body, {
       onSuccess: () => {
         toast.success(ru.detail.themeLinked);
         onOpenChange(false);
       },
-      onError: (err) => setError(err instanceof ApiError && err.fields.title ? err.fields.title : err.message),
+      onError: (err) => {
+        if (err instanceof ApiError && err.fields.title) {
+          setErrors({ title: err.fields.title });
+          titleRef.current?.focus();
+        } else if (err instanceof ApiError && err.status === 404 && mode === 'existing') {
+          setErrors({ pick: ru.detail.themeUnavailable });
+        } else setErrors({ form: err.message });
+      },
     });
   }
+
   return (
     <Dialog
       open={open}
@@ -361,34 +433,134 @@ export function ThemeDialog({ request, open, onOpenChange }: { request: RequestD
             {ru.common.cancel}
           </Button>
           <Button type="submit" form="theme-form" variant="primary" loading={m.isPending}>
-            {ru.common.save}
+            {ru.detail.themeSubmit}
           </Button>
         </>
       }
     >
       <form id="theme-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
-        <FormField label={ru.detail.themeExisting}>
-          <Select
-            value={choice}
-            onValueChange={(v) => {
-              setChoice(v);
-              setError(undefined);
-            }}
-            disabled={themes.isPending}
+        <FormField label={ru.detail.themeMode} asFieldset>
+          <SegmentedControl<ThemeMode>
+            wrap
+            aria-label={ru.detail.themeMode}
+            value={mode}
+            onChange={switchMode}
             options={[
-              { value: NEW_THEME, label: ru.detail.themeNew },
-              ...(themes.data?.items ?? []).map((t) => ({ value: String(t.id), label: `${t.title} · ${ru.common.requests(t.count)}` })),
+              { value: 'new', label: ru.detail.themeModeNew, icon: <Plus className="h-4 w-4 shrink-0 max-sm:hidden" aria-hidden="true" /> },
+              { value: 'existing', label: ru.detail.themeModeExisting, icon: <Tags className="h-4 w-4 shrink-0 max-sm:hidden" aria-hidden="true" /> },
             ]}
           />
         </FormField>
-        {choice === NEW_THEME && (
-          <FormField label={ru.detail.themeNew} error={error}>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={ru.detail.themeNewPlaceholder} maxLength={140} autoFocus />
+
+        {mode === 'new' ? (
+          <FormField
+            label={ru.detail.themeNewLabel}
+            hint={ru.detail.themeNewHint}
+            error={errors.title}
+            required
+            aside={title.length > THEME_TITLE_MAX * 0.8 ? <Counter value={title.length} max={THEME_TITLE_MAX} /> : undefined}
+          >
+            <Input
+              ref={titleRef}
+              value={title}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                if (errors.title) setErrors({});
+              }}
+              placeholder={ru.detail.themeNewPlaceholder}
+              maxLength={THEME_TITLE_MAX + 20}
+              autoComplete="off"
+              autoFocus={!switched}
+            />
           </FormField>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <label htmlFor={searchId} className="text-sm font-medium text-text">
+              {ru.detail.themeSearch}
+            </label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+              <Input
+                id={searchId}
+                ref={searchRef}
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+                autoComplete="off"
+                autoFocus={!switched}
+                disabled={themes.isPending}
+              />
+            </div>
+            <div
+              ref={listRef}
+              role="radiogroup"
+              aria-label={ru.detail.themeList}
+              aria-describedby={errors.pick ? 'theme-pick-err' : undefined}
+              aria-busy={themes.isPending || undefined}
+              className={cn(
+                'max-h-[min(280px,40dvh)] overflow-y-auto overscroll-contain rounded-lg border p-1',
+                errors.pick ? 'border-danger' : 'border-border',
+              )}
+            >
+              {themes.isPending ? (
+                <div className="flex flex-col gap-1 p-1" aria-hidden="true">
+                  {[0, 1, 2].map((i) => (
+                    <Skeleton key={i} className="h-11" />
+                  ))}
+                </div>
+              ) : themes.isError ? (
+                <ErrorState compact error={themes.error} onRetry={() => themes.refetch()} />
+              ) : shown.length === 0 ? (
+                <p className="px-3 py-4 text-sm text-muted">{all.length === 0 ? ru.detail.themeListEmpty : ru.detail.themeListNoMatch}</p>
+              ) : (
+                shown.map((t) => {
+                  const id = `theme-opt-${t.id}`;
+                  const checked = picked === t.id;
+                  return (
+                    <label
+                      key={t.id}
+                      htmlFor={id}
+                      className={cn(
+                        'flex min-h-11 cursor-pointer items-start gap-3 rounded-md px-3 py-2 transition-colors duration-150 hover:bg-surface-2',
+                        checked && 'bg-brand-soft hover:bg-brand-soft',
+                      )}
+                    >
+                      <input
+                        id={id}
+                        type="radio"
+                        name="theme"
+                        value={t.id}
+                        checked={checked}
+                        onChange={() => {
+                          setPicked(t.id);
+                          setErrors({});
+                        }}
+                        className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand)]"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-text [overflow-wrap:anywhere]">
+                          {t.title}
+                          {t.id === request.theme?.id && <span className="ml-2 text-xs font-normal text-muted">({ru.detail.themeCurrent})</span>}
+                        </span>
+                        <span className="block text-xs text-muted">
+                          {ru.common.requests(t.count)}
+                          {t.categories.length > 0 && ` · ${t.categories.join(', ')}`}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            {errors.pick && <FieldError id="theme-pick-err">{errors.pick}</FieldError>}
+            {alreadyIn && !errors.pick && <p className="text-sm text-muted">{ru.detail.themeAlready}</p>}
+          </div>
         )}
-        {error && choice !== NEW_THEME && (
+
+        {errors.form && (
           <p role="alert" className="text-sm text-danger">
-            {error}
+            {errors.form}
           </p>
         )}
       </form>

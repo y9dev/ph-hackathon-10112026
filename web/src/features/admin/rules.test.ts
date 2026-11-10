@@ -18,6 +18,7 @@ describe('categoriesWithoutRule', () => {
     expect(out[1]).toMatch(/^Охрана труда \(только /);
   });
   it('is empty when every type of every category is covered', () => {
-    expect(categoriesWithoutRule([cat(1, 'ИТ')], [rule(1, 'problem'), rule(1, 'idea')])).toEqual([]);
+    expect(categoriesWithoutRule([cat(1, 'ИТ')], [rule(1, 'problem'), rule(1, 'idea'), rule(1, 'feedback')])).toEqual([]);
+    expect(categoriesWithoutRule([cat(1, 'ИТ')], [rule(1, 'problem'), rule(1, 'idea')])).toEqual(['ИТ (только положительный отзыв)']);
   });
 });
