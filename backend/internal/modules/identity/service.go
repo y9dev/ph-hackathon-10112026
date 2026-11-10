@@ -23,9 +23,10 @@ type Config struct {
 	DemoMode       bool
 	DemoEmails     []string
 	DemoPassword   string
-	AccountMaxFail int           // failed logins per account per window (default 5)
+	AccountMaxFail int           // failed logins per (account, client IP) pair per window (default 5)
 	IPMaxFail      int           // failed logins per IP per window (default 20)
 	FailWindow     time.Duration // default 15m
+	TrustedProxy   bool          // read the client IP from X-Forwarded-For / X-Real-IP (only behind a trusted reverse proxy)
 }
 
 // Service implements authentication, sessions and admin user management.
@@ -81,7 +82,8 @@ var errBadCreds = apperr.Unauthorized("Неверный email или парол�
 func (s *Service) Login(ctx context.Context, email, password, ip string) (UserView, string, error) {
 	now := s.now()
 	email = authz.NormalizeEmail(email)
-	acctKey := "a:" + email
+	// keyed by (account, IP): a third party cannot lock a user out from their own IP
+	acctKey := "a:" + email + "|" + ip
 	ipKey := "i:" + ip
 	if s.byAccount.Blocked(acctKey, now) || s.byIP.Blocked(ipKey, now) {
 		return UserView{}, "", apperr.TooMany("Слишком много неудачных попыток входа. Попробуйте через 15 минут.")

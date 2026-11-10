@@ -126,3 +126,30 @@ func (s *SQLiteStore) ThemeRows(ctx context.Context, scope Scope) ([]ThemeRow, e
 	}
 	return out, rows.Err()
 }
+
+// Candidates returns the newest requests for similarity matching, selecting only the columns the
+// scorer and the match view need. categoryID restricts to one category when non-nil.
+func (s *SQLiteStore) Candidates(ctx context.Context, categoryID *int64, since time.Time, limit int) ([]Doc, error) {
+	q := `SELECT id, number, title, body, category_id, status, department_id, assignee_id FROM requests WHERE created_at >= ?`
+	args := []any{db.Unix(since)}
+	if categoryID != nil {
+		q += ` AND category_id = ?`
+		args = append(args, *categoryID)
+	}
+	rows, err := s.DB.QueryContext(ctx, q+` ORDER BY created_at DESC, id DESC LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, fmt.Errorf("query candidates: %w", err)
+	}
+	defer rows.Close()
+	var out []Doc
+	for rows.Next() {
+		var d Doc
+		var dept, asg sql.NullInt64
+		if err := rows.Scan(&d.ID, &d.Number, &d.Title, &d.Body, &d.CategoryID, &d.Status, &dept, &asg); err != nil {
+			return nil, err
+		}
+		d.DepartmentID, d.AssigneeID = db.NullInt(dept), db.NullInt(asg)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}

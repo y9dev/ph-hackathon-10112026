@@ -7,9 +7,9 @@ SQLite (pure Go, no CGO), embedded migrations, server-side sessions.
 
 ```sh
 cd backend
-go run ./cmd/server --seed          # fresh ./data: migrate, seed demo data, serve on :8080
+DEMO_MODE=true go run ./cmd/server --seed          # fresh ./data: migrate, seed demo data, serve on :8080
 go run ./cmd/server                 # serve existing data
-go run ./cmd/server --seed-only     # seed (if empty) and exit
+DEMO_MODE=true go run ./cmd/server --seed-only     # seed (if empty) and exit
 DEMO_MODE=true go run ./cmd/server  # login screen lists demo accounts
 ```
 
@@ -37,10 +37,13 @@ After start the overdue ticker emits overdue notifications/escalations for the s
 | `ADDR` | `:8080` | listen address |
 | `DATA_DIR` | `./data` | SQLite file `modusvoice.db` and `uploads/` |
 | `DEMO_MODE` | `false` | expose `/auth/demo-users` |
-| `SEED_DEMO` | `false` | seed on start if the DB is empty |
+| `SEED_DEMO` | `false` | seed on start if the DB is empty; refused unless `DEMO_MODE=true` (`--seed`/`--seed-only` exit non-zero without it) |
+| `TRUSTED_PROXY` | `false` | client IP from `X-Forwarded-For`/`X-Real-IP` (only behind your own reverse proxy); otherwise the TCP peer |
 | `ALLOWED_ORIGINS` | – | extra origins for unsafe methods (Vite dev: `http://localhost:5173`) |
 | `DISPLAY_TZ` | `Asia/Almaty` | CSV dates and analytics day buckets |
 | `BCRYPT_COST` | `10` | password hash cost |
+| `RATE_CREATE_PER_HOUR` | `20` | per-user limit for creating requests (429 above it) |
+| `RATE_COMMENT_PER_HOUR` | `60` | per-user limit for comments (429 above it) |
 
 No secrets are needed: sessions are random tokens stored hashed (SHA-256) in the DB.
 

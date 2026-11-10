@@ -51,10 +51,16 @@ type testEnv struct {
 	fx  fx
 }
 
-func newEnv(t *testing.T) *testEnv {
+func newEnv(t *testing.T) *testEnv { return newEnvCfg(t, nil) }
+
+// newEnvCfg builds a test app; tweak may adjust the config (rate limits are disabled by default).
+func newEnvCfg(t *testing.T, tweak func(*Config)) *testEnv {
 	t.Helper()
 	clk := &testClock{t: time.Date(2026, 11, 10, 6, 0, 0, 0, time.UTC)}
-	cfg := Config{DataDir: t.TempDir(), BcryptCost: bcrypt.MinCost, DisableTicker: true, DisplayTZ: "UTC", Now: clk.Now, DemoMode: true}
+	cfg := Config{DataDir: t.TempDir(), BcryptCost: bcrypt.MinCost, DisableTicker: true, DisplayTZ: "UTC", Now: clk.Now, DemoMode: true, CreatePerHour: -1, CommentPerHour: -1}
+	if tweak != nil {
+		tweak(&cfg)
+	}
 	a, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("new app: %v", err)

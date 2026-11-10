@@ -12,9 +12,26 @@ import (
 	"modusvoice/internal/platform/httpx"
 )
 
-type handler struct{ svc *Service }
+type handler struct {
+	svc          *Service
+	trustedProxy bool
+}
 
-func clientIP(r *http.Request) string {
+// clientIP returns the TCP peer address. Forwarding headers are honoured only when the
+// deployment states it runs behind a trusted reverse proxy (TRUSTED_PROXY=true).
+func clientIP(r *http.Request, trustedProxy bool) string {
+	if trustedProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// the proxy appends the real peer last; earlier entries are client-controlled
+			parts := strings.Split(xff, ",")
+			if ip := strings.TrimSpace(parts[len(parts)-1]); net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
+		if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -35,7 +52,7 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	view, tok, err := h.svc.Login(r.Context(), in.Email, in.Password, clientIP(r))
+	view, tok, err := h.svc.Login(r.Context(), in.Email, in.Password, clientIP(r, h.trustedProxy))
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

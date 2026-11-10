@@ -173,5 +173,7 @@ type Store interface {
 
 	ThemeByID(ctx context.Context, q db.Querier, id int64) (Theme, error)
 	ThemeByTitle(ctx context.Context, q db.Querier, title string) (Theme, error)
+	// ThemeAccessible reports whether the theme was created by userID or has a request matching scopeSQL (aliased r).
+	ThemeAccessible(ctx context.Context, q db.Querier, themeID, userID int64, scopeSQL string, scopeArgs []any) (bool, error)
 	InsertTheme(ctx context.Context, q db.Querier, title string, by int64, at time.Time) (int64, error)
 }

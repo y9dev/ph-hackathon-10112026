@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,6 +16,9 @@ import (
 	"modusvoice/internal/platform/db"
 	"modusvoice/internal/platform/eventbus"
 )
+
+// errOwnRequest is returned when staff try to review a request they authored themselves.
+const errOwnRequest = "Нельзя рассматривать собственное обращение"
 
 // loadForUpdate loads a request inside tx and checks read access (404) and, if staff is
 // required, staff scope (403).
@@ -65,7 +69,7 @@ func (s *Service) ChangeStatus(ctx context.Context, a authz.Actor, id int64, in 
 		return Detail{}, apperr.Invalid("status", "Неизвестный статус")
 	}
 	result := ""
-	if in.ResultText != nil {
+	if in.ResultText != nil && to.Terminal() { // result_text is meaningful only for terminal statuses
 		result = strings.TrimSpace(*in.ResultText)
 	}
 	if utf8.RuneCountInString(result) > ResultMax {
@@ -78,6 +82,9 @@ func (s *Service) ChangeStatus(ctx context.Context, a authz.Actor, id int64, in 
 		r, err := s.loadForUpdate(ctx, tx, a, id, true)
 		if err != nil {
 			return err
+		}
+		if r.Author.ID == a.UserID {
+			return apperr.Conflict(errOwnRequest)
 		}
 		if !CanTransition(r.Status, to) {
 			return apperr.Conflict(fmt.Sprintf("Переход из статуса «%s» в «%s» недоступен", r.Status.Label(), to.Label()))
@@ -175,6 +182,9 @@ func (s *Service) Assign(ctx context.Context, a authz.Actor, id int64, in Assign
 		if err != nil {
 			return err
 		}
+		if r.Author.ID == a.UserID {
+			return apperr.Conflict(errOwnRequest)
+		}
 		if r.Status.Terminal() {
 			return apperr.Conflict("Закрытое обращение нельзя переназначить")
 		}
@@ -271,6 +281,9 @@ func (s *Service) AddComment(ctx context.Context, a authz.Actor, id int64, in Co
 	body := strings.TrimSpace(in.Body)
 	if n := utf8.RuneCountInString(body); n < 1 || n > CommentMax || !utf8.ValidString(body) {
 		return Detail{}, apperr.Invalid("body", "Текст: от 1 до 4000 символов")
+	}
+	if !s.commentLimit.Allow("u:"+strconv.FormatInt(a.UserID, 10), s.now()) {
+		return Detail{}, apperr.TooMany("Слишком много комментариев за час. Попробуйте позже.")
 	}
 	now := s.now()
 	var saved DetailRow
@@ -401,10 +414,20 @@ func (s *Service) LinkTheme(ctx context.Context, a authz.Actor, id int64, in The
 		if in.ThemeID != nil {
 			t, err = s.Store.ThemeByID(ctx, tx, *in.ThemeID)
 			if errors.Is(err, ErrNotFound) {
-				return apperr.Invalid("theme_id", "Тема не найдена")
+				return apperr.NotFound() // identical to "not accessible": no existence oracle
 			}
 			if err != nil {
 				return err
+			}
+			if a.Role != authz.RoleAdmin {
+				scopeSQL, scopeArgs := authz.ScopeSQL(a, "r.department_id", "r.assignee_id")
+				ok, err := s.Store.ThemeAccessible(ctx, tx, t.ID, a.UserID, scopeSQL, scopeArgs)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return apperr.NotFound() // same answer as a missing theme: no existence leak
+				}
 			}
 		} else {
 			t, err = s.Store.ThemeByTitle(ctx, tx, title)

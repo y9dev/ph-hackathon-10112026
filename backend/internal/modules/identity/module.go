@@ -20,7 +20,7 @@ type Module struct {
 // New builds the module on the given database.
 func New(d *sql.DB, cfg Config, now func() time.Time) *Module {
 	svc := NewService(&SQLiteStore{DB: d}, cfg, now)
-	return &Module{Service: svc, h: &handler{svc: svc}}
+	return &Module{Service: svc, h: &handler{svc: svc, trustedProxy: cfg.TrustedProxy}}
 }
 
 func (m *Module) Name() string { return "identity" }

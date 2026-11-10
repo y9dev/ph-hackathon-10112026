@@ -38,6 +38,7 @@ type Scope struct {
 type Store interface {
 	Doc(ctx context.Context, id int64) (Doc, error)
 	Docs(ctx context.Context, scope Scope, since time.Time, limit int) ([]Doc, error)
+	Candidates(ctx context.Context, categoryID *int64, since time.Time, limit int) ([]Doc, error)
 	Facts(ctx context.Context, scope Scope, from, to *time.Time, departmentID *int64) ([]Fact, error)
 	FirstCreated(ctx context.Context, scope Scope) (*time.Time, error)
 	ThemeRows(ctx context.Context, scope Scope) ([]ThemeRow, error)

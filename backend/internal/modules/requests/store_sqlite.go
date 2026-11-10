@@ -413,3 +413,12 @@ func (s *SQLiteStore) InsertTheme(ctx context.Context, q db.Querier, title strin
 	}
 	return res.LastInsertId()
 }
+
+func (s *SQLiteStore) ThemeAccessible(ctx context.Context, q db.Querier, themeID, userID int64, scopeSQL string, scopeArgs []any) (bool, error) {
+	args := append([]any{themeID, userID, themeID}, scopeArgs...)
+	var n int
+	err := q.QueryRowContext(ctx, `SELECT
+		EXISTS(SELECT 1 FROM themes WHERE id = ? AND created_by = ?)
+		OR EXISTS(SELECT 1 FROM requests r WHERE r.theme_id = ? AND (`+scopeSQL+`))`, args...).Scan(&n)
+	return n == 1, err
+}

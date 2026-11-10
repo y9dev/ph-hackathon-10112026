@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,6 +18,7 @@ import (
 	"modusvoice/internal/platform/authz"
 	"modusvoice/internal/platform/db"
 	"modusvoice/internal/platform/eventbus"
+	"modusvoice/internal/platform/ratelimit"
 )
 
 // OrgReader is the slice of the org module this module needs.
@@ -54,6 +56,8 @@ type SimilarMatch struct {
 // SimilarFinder finds similar requests (implemented by the insights module).
 type SimilarFinder interface {
 	FindSimilar(ctx context.Context, requestID int64) ([]SimilarMatch, error)
+	// CountSimilar is the cheap aggregate for non-staff viewers: same category, last 90 days, 0 when fewer than 2.
+	CountSimilar(ctx context.Context, requestID int64) (int, error)
 }
 
 // Deps are the collaborators wired in app/modules.go.
@@ -68,10 +72,30 @@ type Deps struct {
 	Now       func() time.Time
 	UploadDir string
 	Log       *slog.Logger
+	// Per-user rate limits per hour; 0 selects the defaults, negative disables.
+	CreatePerHour  int
+	CommentPerHour int
 }
 
 // Service implements the request use cases. Every method takes the acting Actor.
-type Service struct{ Deps }
+type Service struct {
+	Deps
+	createLimit  *ratelimit.Limiter
+	commentLimit *ratelimit.Limiter
+}
+
+// Default per-user hourly limits for POST /requests and POST /requests/{id}/comments.
+const (
+	DefaultCreatePerHour  = 20
+	DefaultCommentPerHour = 60
+)
+
+func limitOrDefault(v, def int) int {
+	if v == 0 {
+		return def
+	}
+	return v
+}
 
 func NewService(d Deps) *Service {
 	if d.Now == nil {
@@ -80,7 +104,9 @@ func NewService(d Deps) *Service {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
-	return &Service{Deps: d}
+	return &Service{Deps: d,
+		createLimit:  ratelimit.New(limitOrDefault(d.CreatePerHour, DefaultCreatePerHour), time.Hour),
+		commentLimit: ratelimit.New(limitOrDefault(d.CommentPerHour, DefaultCommentPerHour), time.Hour)}
 }
 
 func (s *Service) now() time.Time { return s.Now().UTC().Truncate(time.Second) }
@@ -194,6 +220,9 @@ func (s *Service) Create(ctx context.Context, a authz.Actor, in CreateInput, fil
 	}
 	if err := ValidateUploads(files); err != nil {
 		return Detail{}, err
+	}
+	if !s.createLimit.Allow("u:"+strconv.FormatInt(a.UserID, 10), s.now()) {
+		return Detail{}, apperr.TooMany("Слишком много обращений за час. Попробуйте позже.")
 	}
 	cat, err := s.Org.Category(ctx, in.CategoryID)
 	if apperr.Is(err, apperr.KindNotFound) || (err == nil && !cat.Active) {
@@ -326,12 +355,12 @@ func (s *Service) buildDetail(ctx context.Context, a authz.Actor, r DetailRow) (
 	}
 	d.AllowedStatuses, d.AllowedCommentKinds, d.CanAssign = allowedFor(r.Row, a)
 	if s.Similar != nil {
-		matches, err := s.Similar.FindSimilar(ctx, r.ID)
-		if err != nil {
-			return Detail{}, err
-		}
-		d.Similar.Count = len(matches)
 		if a.IsStaff() {
+			matches, err := s.Similar.FindSimilar(ctx, r.ID)
+			if err != nil {
+				return Detail{}, err
+			}
+			d.Similar.Count = len(matches)
 			for _, m := range matches {
 				if len(d.Similar.Items) >= 5 {
 					break
@@ -339,6 +368,15 @@ func (s *Service) buildDetail(ctx context.Context, a authz.Actor, r DetailRow) (
 				if a.CanManage(m.DepartmentID, m.AssigneeID) {
 					d.Similar.Items = append(d.Similar.Items, SimilarItem{ID: m.ID, Number: m.Number, Title: m.Title, Status: m.Status, Score: m.Score})
 				}
+			}
+		} else {
+			// aggregate only: same category, recent, and never a small number
+			n, err := s.Similar.CountSimilar(ctx, r.ID)
+			if err != nil {
+				return Detail{}, err
+			}
+			if n >= 2 {
+				d.Similar.Count = n
 			}
 		}
 	}

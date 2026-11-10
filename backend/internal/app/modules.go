@@ -28,7 +28,7 @@ func (a *App) registerModules() []HTTPModule {
 
 	a.Identity = identity.New(a.DB, identity.Config{
 		BcryptCost: a.Cfg.BcryptCost, DemoMode: a.Cfg.DemoMode,
-		DemoEmails: seed.DemoEmails, DemoPassword: seed.DemoPassword,
+		DemoEmails: seed.DemoEmails, DemoPassword: seed.DemoPassword, TrustedProxy: a.Cfg.TrustedProxy,
 	}, now)
 	a.Org = org.New(a.DB, a.Identity.Service)
 	a.Notifications = notifications.New(a.DB, now)
@@ -36,6 +36,7 @@ func (a *App) registerModules() []HTTPModule {
 	a.Requests = requests.New(requests.Deps{
 		DB: a.DB, Org: a.Org.Service, People: a.Identity.Service, Notifier: a.Notifications.Service,
 		Similar: a.Insights.Service, Bus: a.Bus, Now: now, UploadDir: filepath.Join(a.Cfg.DataDir, "uploads"), Log: a.Log,
+		CreatePerHour: a.Cfg.CreatePerHour, CommentPerHour: a.Cfg.CommentPerHour,
 	}, a.Loc)
 	a.Insights.Service.SetOverdueLister(a.Requests.Service)
 

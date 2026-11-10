@@ -14,8 +14,9 @@ import (
 // EscalationDelay: admins are notified this long after a deadline was missed (R3).
 const EscalationDelay = 24 * time.Hour
 
-// CheckOverdue emits overdue events/notifications once per (request, deadline kind):
-// the owner immediately, admins after EscalationDelay. Idempotent via request_events.
+// CheckOverdue emits overdue events/notifications once per (request, deadline kind, due timestamp):
+// the owner immediately, admins after EscalationDelay. Idempotent via request_events.meta ("kind@due_unix");
+// a deadline shifted by a needs_info pause and missed again fires again.
 func (s *Service) CheckOverdue(ctx context.Context) (int, error) {
 	now := s.now()
 	rows, err := s.Store.OverdueCandidates(ctx, now)
@@ -39,19 +40,20 @@ func (s *Service) CheckOverdue(ctx context.Context) (int, error) {
 		if kind == OverdueFirstResponse {
 			due, label = r.FirstResponseDue, "Просрочен срок первого ответа"
 		}
+		meta := fmt.Sprintf("%s@%d", kind, due.Unix())
 		owners, err := s.ownerIDs(ctx, r.DepartmentID, r.AssigneeID)
 		if err != nil {
 			return emitted, err
 		}
 		newEvent := false
 		err = db.InTx(ctx, s.DB, func(tx *sql.Tx) error {
-			has, err := s.Store.HasEvent(ctx, tx, r.ID, EvOverdue, kind)
+			has, err := s.Store.HasEvent(ctx, tx, r.ID, EvOverdue, meta)
 			if err != nil {
 				return err
 			}
 			if !has {
 				newEvent = true
-				if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: r.ID, Kind: EvOverdue, Text: ptr(label), Meta: ptr(kind), At: now}); err != nil {
+				if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: r.ID, Kind: EvOverdue, Text: ptr(label), Meta: ptr(meta), At: now}); err != nil {
 					return err
 				}
 				if err := s.Notifier.Write(ctx, tx, 0, notes(owners, notifications.KindOverdue, r.ID,
@@ -62,12 +64,12 @@ func (s *Service) CheckOverdue(ctx context.Context) (int, error) {
 			if now.Sub(due) < EscalationDelay {
 				return nil
 			}
-			has, err = s.Store.HasEvent(ctx, tx, r.ID, EvOverdueEscalated, kind)
+			has, err = s.Store.HasEvent(ctx, tx, r.ID, EvOverdueEscalated, meta)
 			if err != nil || has {
 				return err
 			}
 			newEvent = true
-			if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: r.ID, Kind: EvOverdueEscalated, Text: ptr(label + " более чем на 24 ч — уведомлены администраторы"), Meta: ptr(kind), At: now}); err != nil {
+			if err := s.Store.InsertEvent(ctx, tx, Event{RequestID: r.ID, Kind: EvOverdueEscalated, Text: ptr(label + " более чем на 24 ч — уведомлены администраторы"), Meta: ptr(meta), At: now}); err != nil {
 				return err
 			}
 			return s.Notifier.Write(ctx, tx, 0, notes(admins, notifications.KindOverdueEscalated, r.ID,

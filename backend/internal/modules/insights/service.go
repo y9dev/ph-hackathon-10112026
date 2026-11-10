@@ -41,12 +41,11 @@ func (s *Service) SetOverdueLister(o OverdueLister) { s.overdue = o }
 
 const (
 	similarLookback = 365 * 24 * time.Hour
-	similarMaxDocs  = 3000
+	similarMaxDocs  = 1500                // newest candidates scored per FindSimilar call
+	countLookback   = 90 * 24 * time.Hour // aggregate-only count for non-staff: same category, recent
 	groupLookback   = 180 * 24 * time.Hour
 	groupMaxDocs    = 600
 )
-
-var allScope = Scope{SQL: "1=1"}
 
 func staffScope(a authz.Actor) Scope {
 	sql, args := authz.ScopeSQL(a, "r.department_id", "r.assignee_id")
@@ -63,7 +62,7 @@ func (s *Service) FindSimilar(ctx context.Context, requestID int64) ([]requests.
 	if err != nil {
 		return nil, err
 	}
-	docs, err := s.store.Docs(ctx, allScope, s.now().Add(-similarLookback), similarMaxDocs)
+	docs, err := s.store.Candidates(ctx, nil, s.now().Add(-similarLookback), similarMaxDocs)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +79,33 @@ func (s *Service) FindSimilar(ctx context.Context, requestID int64) ([]requests.
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
 	return out, nil
+}
+
+// CountSimilar implements requests.SimilarFinder for non-staff viewers: an aggregate count of similar
+// requests in the SAME category within the last 90 days. Counts below 2 are reported as 0 so a
+// small number never reveals that one specific other request exists.
+func (s *Service) CountSimilar(ctx context.Context, requestID int64) (int, error) {
+	target, err := s.store.Doc(ctx, requestID)
+	if errors.Is(err, ErrNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	docs, err := s.store.Candidates(ctx, &target.CategoryID, s.now().Add(-countLookback), similarMaxDocs)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range docs {
+		if docs[i].ID != target.ID && Score(&target, &docs[i]) >= Threshold {
+			n++
+		}
+	}
+	if n < 2 {
+		return 0, nil
+	}
+	return n, nil
 }
 
 // GroupRequest is a request inside a suggested group.

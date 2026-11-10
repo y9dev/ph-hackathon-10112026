@@ -14,6 +14,9 @@ type Config struct {
 	DataDir        string        // DATA_DIR, default ./data (SQLite file + uploads)
 	DemoMode       bool          // DEMO_MODE, default false: exposes /auth/demo-users
 	SeedDemo       bool          // SEED_DEMO, default false: seed demo data if the DB is empty
+	TrustedProxy   bool          // TRUSTED_PROXY, default false: trust X-Forwarded-For / X-Real-IP for the client IP
+	CreatePerHour  int           // RATE_CREATE_PER_HOUR, default 20: POST /requests per user (negative disables)
+	CommentPerHour int           // RATE_COMMENT_PER_HOUR, default 60: POST comments per user (negative disables)
 	AllowedOrigins []string      // ALLOWED_ORIGINS, comma-separated extra origins for unsafe methods (e.g. Vite dev server)
 	DisplayTZ      string        // DISPLAY_TZ, default Asia/Almaty: CSV export and analytics day buckets
 	BcryptCost     int           // BCRYPT_COST, default 10 (tests use 4)
@@ -30,6 +33,9 @@ func LoadConfig() Config {
 		DataDir:        env("DATA_DIR", "./data"),
 		DemoMode:       envBool("DEMO_MODE", false),
 		SeedDemo:       envBool("SEED_DEMO", false),
+		TrustedProxy:   envBool("TRUSTED_PROXY", false),
+		CreatePerHour:  envInt("RATE_CREATE_PER_HOUR", 0),
+		CommentPerHour: envInt("RATE_COMMENT_PER_HOUR", 0),
 		AllowedOrigins: splitList(os.Getenv("ALLOWED_ORIGINS")),
 		DisplayTZ:      env("DISPLAY_TZ", "Asia/Almaty"),
 		BcryptCost:     envInt("BCRYPT_COST", 10),

@@ -37,7 +37,14 @@ func main() {
 	}
 	defer a.Close()
 
-	if *seedFlag || *seedOnly || cfg.SeedDemo {
+	switch seedDecision(*seedFlag || *seedOnly, cfg) {
+	case seedRefuse:
+		log.Error("refusing to seed demo data: DEMO_MODE is not true (demo accounts share a public password)")
+		a.Close()
+		os.Exit(1)
+	case seedSkipWarn:
+		log.Warn("SEED_DEMO ignored: demo data is seeded only when DEMO_MODE=true")
+	case seedRun:
 		if err := runSeed(a, cfg); err != nil {
 			log.Error("seed failed", "err", err)
 			os.Exit(1)
@@ -72,4 +79,27 @@ func runSeed(a *app.App, cfg app.Config) error {
 		a.Log.Info("demo data seeded", "password", "see backend/README.md")
 	}
 	return err
+}
+
+type seedAction int
+
+const (
+	seedNone     seedAction = iota // nothing requested
+	seedRun                        // seed (if the DB is empty)
+	seedSkipWarn                   // SEED_DEMO without DEMO_MODE: skip with a warning
+	seedRefuse                     // explicit --seed/--seed-only without DEMO_MODE: exit non-zero
+)
+
+// seedDecision gates seeding: demo accounts share a public password, so seeding is allowed only
+// when DEMO_MODE=true.
+func seedDecision(explicit bool, cfg app.Config) seedAction {
+	switch {
+	case !explicit && !cfg.SeedDemo:
+		return seedNone
+	case !cfg.DemoMode && explicit:
+		return seedRefuse
+	case !cfg.DemoMode:
+		return seedSkipWarn
+	}
+	return seedRun
 }
