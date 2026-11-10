@@ -133,5 +133,5 @@ func (m *Mirror) deliver(ctx context.Context, it notifications.TelegramItem) err
 		}
 		// Telegram refused the button URL: fall back to a plain link in the text.
 	}
-	return m.api.SendMessage(ctx, it.ChatID, text+"\nОткрыть: "+link, nil)
+	return m.api.SendLinked(ctx, it.ChatID, text+"\n"+openButtonText, TextLink{Text: openButtonText, URL: link})
 }

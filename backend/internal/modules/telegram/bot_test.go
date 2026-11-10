@@ -45,6 +45,11 @@ func (f *fakeAPI) SendMessage(_ context.Context, chat int64, text string, b *But
 	f.sent = append(f.sent, sentMsg{chat, text, b})
 	return nil
 }
+
+// SendLinked records the hyperlink as a Button so tests can assert on its target.
+func (f *fakeAPI) SendLinked(ctx context.Context, chat int64, text string, l TextLink) error {
+	return f.SendMessage(ctx, chat, text, &Button{Text: l.Text, URL: l.URL})
+}
 func (f *fakeAPI) last(chat int64) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

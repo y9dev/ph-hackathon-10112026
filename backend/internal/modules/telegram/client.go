@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -61,6 +62,8 @@ type API interface {
 	GetMe(ctx context.Context) (User, error)
 	GetUpdates(ctx context.Context, offset int64, timeoutSec int) ([]Update, error)
 	SendMessage(ctx context.Context, chatID int64, text string, btn *Button) error
+	// SendLinked sends plain text where the trailing occurrence of link.Text is a hyperlink to link.URL.
+	SendLinked(ctx context.Context, chatID int64, text string, link TextLink) error
 }
 
 const (
@@ -177,9 +180,48 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeoutSec int) (
 	return ups, err
 }
 
+// TextLink turns the last occurrence of Text inside a message into a hyperlink to URL. It uses message
+// entities instead of parse_mode, so the message text never needs escaping.
+type TextLink struct {
+	Text string
+	URL  string
+}
+
 // SendMessage sends plain text (no parse_mode) honouring the rate limits and retrying on 429.
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, btn *Button) error {
+	return c.send(ctx, chatID, text, btn, nil)
+}
+
+// SendLinked sends plain text with one hyperlink (see TextLink). If Text is not found, no link is added.
+func (c *Client) SendLinked(ctx context.Context, chatID int64, text string, link TextLink) error {
+	var ents []map[string]any
+	if i := strings.LastIndex(text, link.Text); i >= 0 && link.Text != "" {
+		ents = append(ents, map[string]any{
+			"type": "text_link", "url": link.URL,
+			"offset": utf16Len(text[:i]), "length": utf16Len(link.Text),
+		})
+	}
+	return c.send(ctx, chatID, text, nil, ents)
+}
+
+// utf16Len counts UTF-16 code units, the unit Telegram uses for entity offsets.
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		if r >= 0x10000 {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
+}
+
+func (c *Client) send(ctx context.Context, chatID int64, text string, btn *Button, ents []map[string]any) error {
 	payload := map[string]any{"chat_id": chatID, "text": text, "disable_web_page_preview": true}
+	if len(ents) > 0 {
+		payload["entities"] = ents
+	}
 	if btn != nil {
 		payload["reply_markup"] = map[string]any{"inline_keyboard": [][]map[string]string{{{"text": btn.Text, "url": btn.URL}}}}
 	}

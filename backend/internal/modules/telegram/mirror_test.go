@@ -85,7 +85,7 @@ func TestMirrorLocalhostUsesLinkInText(t *testing.T) {
 	api, clk := &fakeAPI{}, newFakeClock()
 	o := newFakeOutbox(item(1, 500, "T"))
 	newMirror(api, o, clk, "http://localhost:8080").Tick(context.Background())
-	if len(api.sent) != 1 || api.sent[0].Btn != nil || !strings.Contains(api.sent[0].Text, "http://localhost:8080/requests/10") {
+	if len(api.sent) != 1 || api.sent[0].Btn == nil || api.sent[0].Btn.URL != "http://localhost:8080/requests/10" || !strings.HasSuffix(api.sent[0].Text, "\nОткрыть") {
 		t.Fatalf("sent = %+v", api.sent)
 	}
 }
@@ -103,7 +103,7 @@ func TestMirrorFallsBackWhenTelegramRejectsButton(t *testing.T) {
 	}
 	o := newFakeOutbox(item(1, 500, "T"))
 	newMirror(api, o, clk, "https://voice.example.com").Tick(context.Background())
-	if !o.sent[1] || len(api.sent) != 1 || api.sent[0].Btn != nil || !strings.Contains(api.sent[0].Text, "Открыть: https://voice.example.com/requests/10") {
+	if !o.sent[1] || len(api.sent) != 1 || api.sent[0].Btn == nil || api.sent[0].Btn.URL != "https://voice.example.com/requests/10" || !strings.HasSuffix(api.sent[0].Text, "\nОткрыть") {
 		t.Fatalf("fallback failed: %+v sent=%v", api.sent, o.sent)
 	}
 }

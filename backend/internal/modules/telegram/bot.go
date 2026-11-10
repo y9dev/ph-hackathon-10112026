@@ -389,7 +389,10 @@ func (b *Bot) cmdAdmin(ctx context.Context, chat int64, a authz.Actor) {
 		b.fail(ctx, chat, err)
 		return
 	}
-	b.reply(ctx, chat, fmt.Sprintf("Сводка:\nВсего обращений: %d\nОткрыто: %d\nНе распределено: %d\nПросрочено: %d\nНовых сегодня: %d\n\nОткрыть: %s/analytics", s.Total, s.Open, s.Unrouted, s.Overdue, s.NewToday, b.cfg.AppBaseURL))
+	text := fmt.Sprintf("Сводка:\nВсего обращений: %d\nОткрыто: %d\nНе распределено: %d\nПросрочено: %d\nНовых сегодня: %d\n\nОткрыть аналитику", s.Total, s.Open, s.Unrouted, s.Overdue, s.NewToday)
+	if err := b.api.SendLinked(ctx, chat, text, TextLink{Text: "Открыть аналитику", URL: b.cfg.AppBaseURL + "/analytics"}); err != nil && ctx.Err() == nil {
+		b.log.Warn("telegram reply failed", "err", err)
+	}
 }
 
 func (b *Bot) cmdRequest(ctx context.Context, chat int64, a authz.Actor, args string) {

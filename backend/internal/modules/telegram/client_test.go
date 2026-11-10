@@ -251,3 +251,29 @@ func TestButtonURLAllowed(t *testing.T) {
 		}
 	}
 }
+
+func TestUTF16Len(t *testing.T) {
+	if got := utf16Len("a😀б"); got != 4 { // 1 + 2 (surrogate pair) + 1
+		t.Fatalf("utf16Len = %d", got)
+	}
+}
+
+func TestSendLinkedAddsTextLinkEntity(t *testing.T) {
+	f := newFakeTelegram(t)
+	c := f.client()
+	if err := c.SendLinked(context.Background(), 7, "😀 Привет\nОткрыть", TextLink{Text: "Открыть", URL: "https://example.com/requests/40"}); err != nil {
+		t.Fatal(err)
+	}
+	got := f.delivered()
+	if len(got) != 1 {
+		t.Fatalf("sent %d", len(got))
+	}
+	if _, has := got[0]["parse_mode"]; has {
+		t.Fatal("parse_mode must not be set")
+	}
+	e := got[0]["entities"].([]any)[0].(map[string]any)
+	// "😀 Привет\n" is 2 + 1 + 6 + 1 = 10 UTF-16 units.
+	if e["type"] != "text_link" || e["url"] != "https://example.com/requests/40" || e["offset"].(float64) != 10 || e["length"].(float64) != 7 {
+		t.Fatalf("entity %v", e)
+	}
+}
