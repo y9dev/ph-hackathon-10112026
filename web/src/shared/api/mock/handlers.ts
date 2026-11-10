@@ -21,25 +21,29 @@ import { SIMILAR_THRESHOLD, similarity } from './similarity';
 import { DEMO_PASSWORD } from './seed';
 
 const H = 3_600_000;
-const TERMINAL: Status[] = ['implemented', 'declined', 'duplicate'];
+const TERMINAL: Status[] = ['implemented', 'declined', 'duplicate', 'closed'];
 const ANON_NAME = 'Автор (анонимно)';
 const TRANSITIONS: Record<Status, Status[]> = {
-  new: ['in_review', 'needs_info', 'accepted', 'declined', 'duplicate'],
-  in_review: ['needs_info', 'accepted', 'declined', 'duplicate'],
-  needs_info: ['in_review'],
-  accepted: ['implemented', 'declined'],
+  new: ['in_review', 'needs_info', 'decision', 'declined', 'duplicate', 'closed'],
+  in_review: ['needs_info', 'decision', 'declined', 'duplicate', 'closed'],
+  needs_info: ['in_review', 'closed'],
+  decision: ['in_progress', 'in_review', 'declined', 'closed'],
+  in_progress: ['implemented', 'declined', 'decision', 'closed'],
   implemented: [],
   declined: [],
   duplicate: [],
+  closed: [],
 };
 const STATUS_LABEL: Record<Status, string> = {
   new: 'Новое',
-  in_review: 'На рассмотрении',
+  in_review: 'В проработке',
   needs_info: 'Нужно уточнение',
-  accepted: 'Принято',
+  decision: 'Принятие решения',
+  in_progress: 'Реализация',
   implemented: 'Реализовано',
   declined: 'Отклонено',
   duplicate: 'Дубликат',
+  closed: 'Закрыто',
 };
 export const LIMITS = {
   max_files: 5,
@@ -202,6 +206,20 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       .sort((a, b) => b.score - a.score);
   }
 
+  /** Sliding-window rate limit per user and action (mirrors the backend's 429 on create/comment). */
+  const hits = new Map<string, number[]>();
+  function throttle(userId: number, action: 'create' | 'comment', limit: number) {
+    const key = `${action}:${userId}`;
+    const t = now();
+    const recent = (hits.get(key) ?? []).filter((x) => t - x < 60_000);
+    if (recent.length >= limit) {
+      hits.set(key, recent);
+      throw new HttpError(429, 'too_many_requests', action === 'create' ? 'Слишком много обращений за короткое время. Подождите минуту.' : 'Слишком много сообщений за короткое время. Подождите минуту.');
+    }
+    recent.push(t);
+    hits.set(key, recent);
+  }
+
   function detail(viewer: MUser, r: MRequest): RequestDetail {
     const staff = inStaffScope(viewer, r);
     const isAuthor = r.author_id === viewer.id;
@@ -227,12 +245,14 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
     let allowed: Status[] = [];
     const kinds: CommentKind[] = [];
     if (staff) {
-      allowed = TRANSITIONS[r.status].filter((s) => s !== 'needs_info');
+      // Own requests cannot be processed (409 on the status endpoint), so no actions are offered.
+      allowed = isAuthor ? [] : TRANSITIONS[r.status].filter((s) => s !== 'needs_info');
       if (!terminal) kinds.push('comment');
       if (r.status === 'new' || r.status === 'in_review') {
         kinds.push('question');
-        allowed = [...allowed, 'needs_info'];
+        if (!isAuthor) allowed = [...allowed, 'needs_info'];
       }
+      if (!isAuthor && (r.status === 'in_review' || r.status === 'decision' || r.status === 'in_progress')) kinds.push('report');
       kinds.push('internal');
     }
     if (isAuthor && !terminal) {
@@ -310,9 +330,9 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
   function matchTab(r: MRequest, tab: InboxTab): boolean {
     switch (tab) {
       case 'needs_action':
-        return r.status === 'new' || ((r.status === 'in_review' || r.status === 'accepted') && isOverdue(r));
+        return r.status === 'new' || r.status === 'decision' || (r.status === 'in_progress' && isOverdue(r)) || (r.status === 'in_review' && isOverdue(r));
       case 'in_progress':
-        return r.status === 'in_review' || r.status === 'accepted';
+        return r.status === 'in_review' || r.status === 'decision' || r.status === 'in_progress';
       case 'waiting_author':
         return r.status === 'needs_info';
       case 'closed':
@@ -382,7 +402,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       .sort((a, b) => a - b);
     const pct = (p: number) => (hours.length ? Math.round(hours[Math.min(hours.length - 1, Math.floor(p * (hours.length - 1)))] * 10) / 10 : null);
     const closed = inPeriod.filter((r) => TERMINAL.includes(r.status));
-    const statuses: Status[] = ['new', 'in_review', 'needs_info', 'accepted', 'implemented', 'declined', 'duplicate'];
+    const statuses: Status[] = ['new', 'in_review', 'needs_info', 'decision', 'in_progress', 'implemented', 'declined', 'duplicate', 'closed'];
     const catNames = [...new Set(inPeriod.map((r) => r.category_id))];
     const depNames = [...new Set(inPeriod.map((r) => r.department_id))];
     // time series: daily for <= 31 days, weekly otherwise
@@ -625,6 +645,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       /^\/requests$/,
       (req) => {
         const u = me();
+        throttle(u.id, 'create', 15);
         const form = req.form;
         const raw = form?.get('payload');
         let p: Partial<CreateRequest>;
@@ -727,6 +748,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const r = getStaffScoped(u, Number(m[1]));
         const b = req.json() as { status?: Status; result_text?: string; duplicate_of_id?: number };
         const to = b.status as Status;
+        if (r.author_id === u.id) throw new HttpError(409, 'conflict', 'Нельзя менять статус собственного обращения');
         const allowed = detail(u, r).allowed_statuses;
         if (!to || !allowed.includes(to) || to === 'needs_info') {
           throw new HttpError(409, 'conflict', `Нельзя перевести обращение из статуса «${STATUS_LABEL[r.status]}» в «${STATUS_LABEL[to] ?? to}»`);
@@ -788,6 +810,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       (req, m) => {
         const u = me();
         const r = getVisible(u, Number(m[1]));
+        throttle(u.id, 'comment', 30);
         const b = req.json() as { kind?: CommentKind; body?: string };
         const body = (b.body ?? '').trim();
         if (!body) throw bad({ body: 'Напишите текст сообщения' });
@@ -803,6 +826,8 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         } else if (b.kind === 'answer') {
           setStatus(u, r, 'in_review', null);
           for (const o of owners(r)) notify(o, r, 'answer', `Автор ответил: ${r.number}`, body.slice(0, 120), u.id);
+        } else if (b.kind === 'report') {
+          notify(r.author_id, r, 'report', `Отчёт о ходе по ${r.number}`, body.slice(0, 120), u.id);
         } else if (b.kind === 'comment') {
           if (u.id === r.author_id) for (const o of owners(r)) notify(o, r, 'comment', `Новый комментарий в ${r.number}`, body.slice(0, 120), u.id);
           else notify(r.author_id, r, 'comment', `Новый комментарий в ${r.number}`, body.slice(0, 120), u.id);
@@ -818,6 +843,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
         const r = getStaffScoped(u, Number(m[1]));
         const b = req.json() as { theme_id?: number; title?: string };
         let theme = b.theme_id ? db.themes.find((t) => t.id === b.theme_id) : undefined;
+        if (b.theme_id && !theme) throw new HttpError(404, 'not_found', 'Тема не найдена');
         if (!theme) {
           const title = (b.title ?? '').trim();
           if (!title) throw bad({ title: 'Выберите тему или введите название новой' });

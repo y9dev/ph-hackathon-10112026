@@ -49,6 +49,10 @@ test('employee screens', async ({ page }) => {
   await expect(page.getByText('Нужен ваш ответ').first()).toBeVisible();
   await shoot(page, '05-detail-author');
 
+  await page.goto('/requests/12');
+  await expect(page.getByRole('list', { name: 'Этапы обращения' })).toContainText('Завершено');
+  await shoot(page, '14-detail-author-lifecycle');
+
   await page.goto('/notifications');
   await expect(page.getByRole('heading', { level: 1, name: 'Уведомления' })).toBeVisible();
   await shoot(page, '09-notifications');
@@ -65,6 +69,10 @@ test('staff screens', async ({ page }) => {
   await page.goto('/requests/8');
   await expect(page.getByRole('heading', { name: 'Работа с обращением' })).toBeVisible();
   await shoot(page, '07-detail-staff');
+
+  await page.goto('/requests/4');
+  await expect(page.getByTestId('latest-report')).toBeVisible();
+  await shoot(page, '15-detail-staff-implementation-report');
 
   await page.goto('/analytics');
   await expect(page.getByRole('heading', { name: 'Повторяющиеся проблемы' })).toBeVisible();

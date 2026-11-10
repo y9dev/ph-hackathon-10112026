@@ -12,14 +12,20 @@ export function useRequestMutations(id: number) {
     qc.invalidateQueries({ queryKey: qk.notifications });
     qc.invalidateQueries({ queryKey: qk.analytics });
   };
+  // On 409 (transition/comment no longer allowed) refresh the request so actions match the server state.
+  const onError = () => {
+    qc.invalidateQueries({ queryKey: qk.request(id) });
+  };
   return {
     status: useMutation({
       mutationFn: (b: { status: Status; result_text?: string; duplicate_of_id?: number }) => api.changeStatus(id, b),
       onSuccess,
+      onError,
     }),
     comment: useMutation({
       mutationFn: (b: { kind: CommentKind; body: string }) => api.addComment(id, b),
       onSuccess,
+      onError,
     }),
     assign: useMutation({
       mutationFn: (b: { department_id?: number; assignee_id?: number | null }) => api.assign(id, b),

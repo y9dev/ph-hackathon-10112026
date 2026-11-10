@@ -80,7 +80,7 @@ export interface MEvent {
   id: number;
   request_id: number;
   actor_id: number | null;
-  kind: Exclude<TimelineKind, 'comment' | 'question' | 'answer' | 'internal'>;
+  kind: Exclude<TimelineKind, 'comment' | 'question' | 'answer' | 'internal' | 'report'>;
   from_status?: Status;
   to_status?: Status;
   text?: string | null;

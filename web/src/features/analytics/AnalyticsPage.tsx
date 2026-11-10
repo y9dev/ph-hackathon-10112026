@@ -37,9 +37,11 @@ const STATUS_COLOR: Record<Status, string> = {
   new: 'var(--status-new)',
   in_review: 'var(--status-in-review)',
   needs_info: 'var(--status-needs-info)',
-  accepted: 'var(--status-accepted)',
+  decision: 'var(--status-decision)',
+  in_progress: 'var(--status-in-progress)',
   implemented: 'var(--status-implemented)',
   declined: 'var(--status-declined)',
+  closed: 'color-mix(in srgb, var(--status-closed) 70%, var(--surface))',
   duplicate: 'color-mix(in srgb, var(--status-duplicate) 55%, var(--surface))',
 };
 

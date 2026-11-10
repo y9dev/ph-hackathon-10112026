@@ -15,12 +15,16 @@ const STATUS_STYLE: Record<Status, string> = {
     'text-[var(--status-in-review)] bg-[var(--status-in-review-soft)] border-[color-mix(in_srgb,var(--status-in-review)_25%,transparent)]',
   needs_info:
     'text-[var(--status-needs-info)] bg-[var(--status-needs-info-soft)] border-[color-mix(in_srgb,var(--status-needs-info)_25%,transparent)]',
-  accepted:
-    'text-[var(--status-accepted)] bg-[var(--status-accepted-soft)] border-[color-mix(in_srgb,var(--status-accepted)_25%,transparent)]',
+  decision:
+    'text-[var(--status-decision)] bg-[var(--status-decision-soft)] border-[color-mix(in_srgb,var(--status-decision)_25%,transparent)]',
+  in_progress:
+    'text-[var(--status-in-progress)] bg-[var(--status-in-progress-soft)] border-[color-mix(in_srgb,var(--status-in-progress)_25%,transparent)]',
   implemented:
     'text-[var(--status-implemented)] bg-[var(--status-implemented-soft)] border-[color-mix(in_srgb,var(--status-implemented)_25%,transparent)]',
   declined:
     'text-[var(--status-declined)] bg-[var(--status-declined-soft)] border-[color-mix(in_srgb,var(--status-declined)_25%,transparent)]',
+  closed:
+    'text-[var(--status-closed)] bg-[var(--status-closed-soft)] border-[color-mix(in_srgb,var(--status-closed)_25%,transparent)]',
   duplicate:
     'text-[var(--status-duplicate)] bg-[var(--status-duplicate-soft)] border-[color-mix(in_srgb,var(--status-duplicate)_25%,transparent)]',
 };

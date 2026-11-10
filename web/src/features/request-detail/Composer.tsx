@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useState, type FormEvent } from 'react';
-import { MessageSquare, MessageCircleQuestion, Reply, Lock, Send } from 'lucide-react';
+import { MessageSquare, MessageCircleQuestion, Reply, Lock, Send, ClipboardList } from 'lucide-react';
 import type { CommentKind, RequestDetail } from '@/shared/api/types';
 import { ApiError } from '@/shared/api/client';
 import { cn } from '@/shared/lib/cn';
@@ -13,12 +13,14 @@ const ICON: Record<CommentKind, typeof MessageSquare> = {
   question: MessageCircleQuestion,
   answer: Reply,
   internal: Lock,
+  report: ClipboardList,
 };
 const SENT: Record<CommentKind, string> = {
   comment: ru.detail.sentComment,
   question: ru.detail.sentQuestion,
   answer: ru.detail.sentAnswer,
   internal: ru.detail.sentInternal,
+  report: ru.detail.sentReport,
 };
 
 /** Order kinds so the most likely action is first; answer wins when the author is asked. */

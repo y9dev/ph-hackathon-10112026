@@ -38,6 +38,17 @@ export function saveDraft(userId: number, v: Partial<SubmitValues>) {
   }
 }
 
+/** Remove every stored draft (called on logout so anonymous text does not stay on a shared device). */
+export function clearAllDrafts() {
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('mv-draft-'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
 export function clearDraft(userId: number) {
   try {
     localStorage.removeItem(key(userId));

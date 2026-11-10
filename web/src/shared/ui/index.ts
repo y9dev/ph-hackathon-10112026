@@ -11,3 +11,4 @@ export * from './States';
 export * from './Layout';
 export * from './Tabs';
 export * from './CategoryIcon';
+export * from './StageStepper';

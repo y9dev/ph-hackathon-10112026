@@ -9,10 +9,13 @@ import {
   CircleCheckBig,
   CircleX,
   Copy,
+  Archive,
   UserCog,
   Tags,
   Search,
-  ThumbsUp,
+  Scale,
+  Hammer,
+  Undo2,
   EyeOff,
 } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
@@ -21,7 +24,7 @@ import type { RequestDetail, Status } from '@/shared/api/types';
 import { cn } from '@/shared/lib/cn';
 import { downloadFile } from '@/shared/lib/download';
 import { formatBytes, formatDateTime } from '@/shared/lib/format';
-import { isTerminal, needsResult, sortActions, statusLabel } from '@/shared/lib/status';
+import { actionLabel, isBackward, isTerminal, needsResult, sortActions, statusLabel } from '@/shared/lib/status';
 import { ru } from '@/shared/i18n/ru';
 import {
   AnonymousBadge,
@@ -42,6 +45,7 @@ import {
 import { TypeLabel } from '@/shared/ui/RequestCard';
 import { useUser, isStaff } from '@/features/auth/AuthProvider';
 import { Timeline } from './Timeline';
+import { LifecycleCard } from './LifecycleCard';
 import { Composer } from './Composer';
 import { AssignDialog, CloseDialog, QuestionDialog, ThemeDialog } from './ActionDialogs';
 import { useRequestMutations } from './useRequestMutations';
@@ -129,6 +133,10 @@ function Detail({ r }: { r: RequestDetail }) {
         </div>
       )}
 
+      <div className="mb-6">
+        <LifecycleCard r={r} showHint={isAuthor && !staffView} />
+      </div>
+
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8">
         <div className="flex min-w-0 flex-col gap-6">
           {r.result_text && <ResultCard r={r} highlight={isAuthor} />}
@@ -171,11 +179,11 @@ function Detail({ r }: { r: RequestDetail }) {
 }
 
 function ResultCard({ r, highlight }: { r: RequestDetail; highlight: boolean }) {
-  const Icon = r.status === 'implemented' ? CircleCheckBig : r.status === 'duplicate' ? Copy : r.status === 'declined' ? CircleX : ThumbsUp;
+  const Icon = r.status === 'implemented' ? CircleCheckBig : r.status === 'closed' ? Archive : r.status === 'duplicate' ? Copy : r.status === 'declined' ? CircleX : CircleCheckBig;
   const tone =
     r.status === 'implemented'
       ? 'border-success/40 bg-success-soft'
-      : r.status === 'declined' || r.status === 'duplicate'
+      : r.status === 'declined' || r.status === 'duplicate' || r.status === 'closed'
         ? 'border-border-strong bg-surface-2'
         : 'border-brand/40 bg-brand-soft';
   return (
@@ -273,10 +281,12 @@ function MetaCard({ r }: { r: RequestDetail }) {
 const ACTION_ICON: Partial<Record<Status, typeof Search>> = {
   in_review: Search,
   needs_info: MessageCircleQuestion,
-  accepted: ThumbsUp,
+  decision: Scale,
+  in_progress: Hammer,
   implemented: CircleCheckBig,
   declined: CircleX,
   duplicate: Copy,
+  closed: Archive,
 };
 
 function StaffActions({ r }: { r: RequestDetail }) {
@@ -291,8 +301,10 @@ function StaffActions({ r }: { r: RequestDetail }) {
   const actions = sortActions([
     ...r.allowed_statuses.filter((s) => s !== 'needs_info'),
     ...(r.allowed_comment_kinds.includes('question') ? (['needs_info'] as Status[]) : []),
-  ]);
-  const primary = actions.find((s) => s === 'in_review' || s === 'accepted' || s === 'implemented');
+  ], r.status);
+  const primary = actions.find(
+    (s) => !isBackward(r.status, s) && (s === 'in_review' || s === 'decision' || s === 'in_progress' || s === 'implemented'),
+  );
 
   function run(s: Status) {
     if (s === 'needs_info') return setQuestion(true);
@@ -316,7 +328,7 @@ function StaffActions({ r }: { r: RequestDetail }) {
       <div className="flex flex-col gap-2 px-6 pb-6 pt-4 max-sm:px-4">
         {actions.length === 0 && <p className="text-sm text-muted">{ru.detail.noActions}</p>}
         {actions.map((s) => {
-          const Icon = ACTION_ICON[s];
+          const Icon = isBackward(r.status, s) ? Undo2 : ACTION_ICON[s];
           return (
             <Button
               key={s}
@@ -327,7 +339,7 @@ function StaffActions({ r }: { r: RequestDetail }) {
               disabled={status.isPending && pending !== s}
               icon={Icon && <Icon className="h-4 w-4" aria-hidden="true" />}
             >
-              {ru.statusActions[s]}
+              {actionLabel(r.status, s)}
             </Button>
           );
         })}

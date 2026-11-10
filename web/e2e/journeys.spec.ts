@@ -43,25 +43,40 @@ test.describe('Journeys J1–J4', () => {
     await expect(page.getByText(c.number).first()).toBeVisible();
   });
 
-  test('J3 review: staff takes the request, cannot close without result, closes with result; author sees it', async ({ page }) => {
+  test('J3 lifecycle: take into work, pass to decision, start implementation, report, complete; author sees stepper, report and result', async ({ page }) => {
     await loginAs(page, ROLES.employee);
     const c = await submitRequest(page, uniqueTitle('Нет зимней резины'));
     await logout(page);
 
     await loginAs(page, ROLES.admin);
     await openFromInbox(page, c);
-    await page.getByRole('button', { name: 'Взять в работу' }).click();
-    await expect(page.getByText('Статус: На рассмотрении. Автор уведомлён').first()).toBeVisible();
+    const stepper = page.getByRole('list', { name: 'Этапы обращения' });
+    await expect(stepper.getByRole('listitem').first()).toHaveAttribute('aria-current', 'step');
 
-    await page.getByRole('button', { name: 'Принять' }).click();
-    await expect(page.getByText('Статус: Принято. Автор уведомлён').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Взять в проработку' }).click();
+    await expect(page.getByText('Статус: В проработке. Автор уведомлён').first()).toBeVisible();
 
-    await page.getByRole('button', { name: 'Отметить реализованным' }).click();
+    await page.getByRole('button', { name: 'Передать на решение' }).click();
+    await expect(page.getByText('Статус: Принятие решения. Автор уведомлён').first()).toBeVisible();
+    await expect(stepper.getByRole('listitem').nth(1)).toHaveAttribute('aria-current', 'step');
+    await expect(page.getByRole('button', { name: 'Вернуть на доработку' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Начать реализацию' }).click();
+    await expect(page.getByText('Статус: Реализация. Автор уведомлён').first()).toBeVisible();
+    await expect(stepper.getByRole('listitem').nth(2)).toHaveAttribute('aria-current', 'step');
+
+    await page.getByRole('radio', { name: /Отчёт/ }).click();
+    await page.getByLabel('Текст сообщения').fill('Шины заказаны, установка в пятницу.');
+    await page.getByRole('button', { name: 'Отправить' }).click();
+    await expect(page.getByText('Отчёт отправлен, автор уведомлён').first()).toBeVisible();
+    await expect(page.getByTestId('latest-report')).toContainText('Шины заказаны, установка в пятницу.');
+
+    await page.getByRole('button', { name: 'Завершить с результатом' }).click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: 'Отметить реализованным' }).click();
+    await dialog.getByRole('button', { name: 'Завершить с результатом' }).click();
     await expect(dialog.getByText('Без решения закрыть нельзя — опишите результат')).toBeVisible();
     await dialog.getByLabel('Решение для автора').fill('Шины заменены на зимние, машина готова к выездам.');
-    await dialog.getByRole('button', { name: 'Отметить реализованным' }).click();
+    await dialog.getByRole('button', { name: 'Завершить с результатом' }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByRole('heading', { name: 'Решение: Реализовано' })).toBeVisible();
     await logout(page);
@@ -69,7 +84,34 @@ test.describe('Journeys J1–J4', () => {
     await loginAs(page, ROLES.employee);
     await page.goto('/my?filter=closed');
     await page.getByRole('link', { name: new RegExp(c.title) }).click();
+    await expect(page.getByRole('heading', { level: 1, name: c.title })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Этапы обращения' })).toContainText('Завершено');
+    await expect(page.getByTestId('latest-report')).toContainText('Шины заказаны, установка в пятницу.');
     await expect(page.getByText('Шины заменены на зимние, машина готова к выездам.').first()).toBeVisible();
+  });
+
+  test('J5 close: staff closes a request with a result; author sees "Закрыто"', async ({ page }) => {
+    await loginAs(page, ROLES.employee);
+    const c = await submitRequest(page, uniqueTitle('Вопрос про отпуск'));
+    await logout(page);
+
+    await loginAs(page, ROLES.admin);
+    await openFromInbox(page, c);
+    await page.getByRole('button', { name: 'Закрыть с результатом' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Закрыть с результатом' }).click();
+    await expect(dialog.getByText('Без решения закрыть нельзя — опишите результат')).toBeVisible();
+    await dialog.getByLabel('Решение для автора').fill('Ответили лично, дополнительных действий не требуется.');
+    await dialog.getByRole('button', { name: 'Закрыть с результатом' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'Решение: Закрыто' })).toBeVisible();
+    await logout(page);
+
+    await loginAs(page, ROLES.employee);
+    await page.goto('/my?filter=closed');
+    await page.getByRole('link', { name: new RegExp(c.title) }).click();
+    await expect(page.getByRole('heading', { level: 1, name: c.title })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Этапы обращения' })).toContainText('Закрыто');
   });
 
   test('J4 clarify: staff asks a question, author answers, request returns to review', async ({ page }) => {
@@ -96,7 +138,7 @@ test.describe('Journeys J1–J4', () => {
     await page.getByLabel('Текст сообщения').fill('Чаще всего в Экибастузе: забываем удлинители и бланки протоколов.');
     await page.getByRole('button', { name: 'Отправить' }).click();
     await expect(page.getByText('Ответ отправлен').first()).toBeVisible();
-    await expect(page.getByText('На рассмотрении').first()).toBeVisible();
+    await expect(page.getByText('В проработке').first()).toBeVisible();
   });
 
   test('guards: employee cannot open staff pages; unknown request shows not found', async ({ page }) => {

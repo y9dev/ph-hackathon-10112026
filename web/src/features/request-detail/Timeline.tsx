@@ -7,6 +7,7 @@ import {
   MessageCircleQuestion,
   Reply,
   Lock,
+  ClipboardList,
   Tags,
   AlarmClock,
   ArrowRight,
@@ -26,11 +27,12 @@ const ICON: Record<TimelineKind, typeof FilePlus2> = {
   question: MessageCircleQuestion,
   answer: Reply,
   internal: Lock,
+  report: ClipboardList,
   theme_linked: Tags,
   overdue: AlarmClock,
 };
 
-const MESSAGE_KINDS: TimelineKind[] = ['comment', 'question', 'answer', 'internal'];
+const MESSAGE_KINDS: TimelineKind[] = ['comment', 'question', 'answer', 'internal', 'report'];
 
 function ActorLine({ item }: { item: TimelineItem }) {
   const a = item.actor;
@@ -67,7 +69,9 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
                   ? 'border-warning/40 bg-warning-soft text-warning'
                   : item.kind === 'question'
                     ? 'border-[color-mix(in_srgb,var(--status-needs-info)_35%,transparent)] bg-[var(--status-needs-info-soft)] text-[var(--status-needs-info)]'
-                    : isMessage
+                    : item.kind === 'report'
+                      ? 'border-[color-mix(in_srgb,var(--status-in-progress)_35%,transparent)] bg-[var(--status-in-progress-soft)] text-[var(--status-in-progress)]'
+                      : isMessage
                       ? 'border-border bg-surface text-text'
                       : 'border-border bg-surface-2 text-muted',
               )}
@@ -90,14 +94,22 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
                       ? 'border-dashed border-warning/50 bg-warning-soft/60'
                       : item.kind === 'question'
                         ? 'border-[color-mix(in_srgb,var(--status-needs-info)_30%,transparent)] bg-surface'
-                        : 'border-border bg-surface',
+                        : item.kind === 'report'
+                          ? 'border-[color-mix(in_srgb,var(--status-in-progress)_40%,transparent)] bg-[var(--status-in-progress-soft)]'
+                          : 'border-border bg-surface',
                   )}
                 >
                   {item.kind !== 'comment' && (
                     <p
                       className={cn(
                         'mb-1 flex items-center gap-1 text-xs font-medium',
-                        internal ? 'text-warning' : item.kind === 'question' ? 'text-[var(--status-needs-info)]' : 'text-muted',
+                        internal
+                          ? 'text-warning'
+                          : item.kind === 'question'
+                            ? 'text-[var(--status-needs-info)]'
+                            : item.kind === 'report'
+                              ? 'text-[var(--status-in-progress)]'
+                              : 'text-muted',
                       )}
                       aria-hidden="true"
                     >

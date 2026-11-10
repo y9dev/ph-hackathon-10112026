@@ -2,8 +2,8 @@
 
 export type Role = 'employee' | 'manager' | 'admin';
 export type RequestType = 'problem' | 'idea';
-export type Status = 'new' | 'in_review' | 'needs_info' | 'accepted' | 'implemented' | 'declined' | 'duplicate';
-export type CommentKind = 'comment' | 'question' | 'answer' | 'internal';
+export type Status = 'new' | 'in_review' | 'needs_info' | 'decision' | 'in_progress' | 'implemented' | 'declined' | 'duplicate' | 'closed';
+export type CommentKind = 'comment' | 'question' | 'answer' | 'internal' | 'report';
 export type InboxTab = 'needs_action' | 'in_progress' | 'waiting_author' | 'closed' | 'all';
 export type ListScope = 'mine' | 'inbox' | 'all';
 export type ListSort = 'deadline' | 'newest' | 'oldest' | 'updated';
@@ -18,6 +18,7 @@ export type TimelineKind =
   | 'question'
   | 'answer'
   | 'internal'
+  | 'report'
   | 'theme_linked'
   | 'overdue';
 

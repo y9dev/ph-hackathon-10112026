@@ -7,6 +7,7 @@ import { isTerminal } from '@/shared/lib/status';
 import { waitingDays } from '@/shared/lib/sla';
 import { ru } from '@/shared/i18n/ru';
 import { AnonymousBadge, SlaChip, StatusChip } from './Chips';
+import { StageStepperCompact } from './StageStepper';
 import { Skeleton } from './States';
 
 export function TypeLabel({ type, className }: { type: RequestSummary['type']; className?: string }) {
@@ -57,6 +58,7 @@ export function RequestCard({ r, variant }: { r: RequestSummary; variant: 'autho
           </span>
         )}
       </div>
+      <StageStepperCompact status={r.status} className="mt-3" />
       {needsAnswer && (
         <p className="mt-3 flex items-center gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm font-medium text-warning">
           <MessageCircleQuestion className="h-4 w-4 shrink-0" aria-hidden="true" />

@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { api, ApiError, onUnauthorized } from '@/shared/api/client';
 import { qk, shouldRetry } from '@/shared/api/queries';
 import type { Role, User } from '@/shared/api/types';
+import { clearAllDrafts } from '@/features/submit/draft';
 
 interface AuthState {
   user: User | null;
@@ -56,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           await api.logout();
         } finally {
+          clearAllDrafts();
           setExpired(false);
           qc.setQueryData(qk.me, null);
           qc.removeQueries({ predicate: (q) => q.queryKey[0] !== qk.me[0] });

@@ -96,7 +96,7 @@ const seedRequests: SeedRequest[] = [
   // 3 — VPN cluster
   { cat: 1, type: 'problem', title: 'Нет доступа к серверу через VPN с объекта', body: 'С объекта не открывается файловый сервер через VPN. В офисе всё работает. Похоже, проблема в подключении через мобильный интернет на объекте.', author: 11, status: 'new', created: 2 },
   // 4 — 1C slowness cluster
-  { cat: 1, type: 'problem', title: '1С очень медленно открывает документы по утрам', body: 'С 9 до 11 утра 1С открывает документы реализации по минуте и больше. Менеджеры не успевают выставлять счета клиентам вовремя.', author: 10, status: 'accepted', created: 120, respond: 5, comments: [{ by: 2, kind: 'comment', body: 'Подтверждаем: утром идёт регламентное обновление базы. Перенесём его на ночь.', at: 5 }] },
+  { cat: 1, type: 'problem', title: '1С очень медленно открывает документы по утрам', body: 'С 9 до 11 утра 1С открывает документы реализации по минуте и больше. Менеджеры не успевают выставлять счета клиентам вовремя.', author: 10, status: 'in_progress', created: 120, respond: 5, comments: [{ by: 2, kind: 'comment', body: 'Подтверждаем: утром идёт регламентное обновление базы. Перенесём его на ночь.', at: 5 }, { by: 2, kind: 'report', body: 'Настроили ночное окно для обновления базы на тестовом контуре. На следующей неделе переносим на рабочую базу и проверяем скорость по утрам.', at: 60 }] },
   // 5 — 1C slowness cluster
   { cat: 8, type: 'problem', title: 'Медленно работает 1С при выставлении счетов', body: 'Выставление счёта в 1С занимает несколько минут, особенно утром. Клиенты ждут на телефоне, это неудобно и выглядит непрофессионально.', author: 12, status: 'duplicate', created: 100, respond: 20, close: 20, dupOf: 4, result: 'Та же причина, что и в MV-0004: утреннее регламентное обновление базы. Решаем там.' },
   // 6 — overdue first response (IT, 8 h)
@@ -106,7 +106,7 @@ const seedRequests: SeedRequest[] = [
   // 8 — supply cluster
   { cat: 3, type: 'problem', title: 'Задержки поставки комплектующих для щитов', body: 'Комплектующие для сборки щитов автоматики приходят с опозданием на две-три недели. Сроки поставки поставщик не подтверждает письменно.', author: 1, anon: true, status: 'in_review', created: 75, respond: 10, comments: [{ by: 5, kind: 'internal', body: 'Это уже третий сигнал по этому поставщику. Готовлю претензию и запрос альтернативных КП.', at: 12 }] },
   // 9 — supply cluster, overdue resolution
-  { cat: 3, type: 'idea', title: 'Резервный склад комплектующих для срочных объектов', body: 'Предлагаю держать небольшой резерв ходовых комплектующих и датчиков для срочных объектов, чтобы не зависеть от сроков поставки.', sol: 'Список из 20 позиций уже подготовлен, могу прислать.', author: 13, status: 'accepted', created: 200, respond: 30, comments: [{ by: 5, kind: 'comment', body: 'Хорошая идея. Согласуем бюджет резерва с финансовым отделом.', at: 30 }] },
+  { cat: 3, type: 'idea', title: 'Резервный склад комплектующих для срочных объектов', body: 'Предлагаю держать небольшой резерв ходовых комплектующих и датчиков для срочных объектов, чтобы не зависеть от сроков поставки.', sol: 'Список из 20 позиций уже подготовлен, могу прислать.', author: 13, status: 'decision', created: 200, respond: 30, comments: [{ by: 5, kind: 'comment', body: 'Хорошая идея. Согласуем бюджет резерва с финансовым отделом.', at: 30 }] },
   // 10 — J4: anonymous request of the demo employee waiting for author
   { cat: 2, type: 'problem', title: 'Нет единого чек-листа перед выездом на пусконаладку', body: 'Перед выездом каждый собирает инструмент и документы по-своему. Регулярно что-то забываем, и приходится возвращаться или ждать курьера. Нужен общий чек-лист.', author: 1, anon: true, status: 'needs_info', created: 52, respond: 6, comments: [{ by: 3, kind: 'question', body: 'Спасибо за сигнал. Подскажите, на каких объектах это происходило чаще всего и чего обычно не хватает?', at: 6 }] },
   // 11
@@ -122,7 +122,7 @@ const seedRequests: SeedRequest[] = [
   // 16 — in review, design
   { cat: 5, type: 'problem', title: 'Лицензий на программу проектирования не хватает', body: 'В отделе 9 проектировщиков и только 6 лицензий. Приходится ждать, пока коллега освободит лицензию, проекты задерживаются.', author: 11, status: 'in_review', created: 90, respond: 18, comments: [{ by: 7, kind: 'comment', body: 'Собираю статистику использования лицензий за месяц, чтобы обосновать докупку.', at: 18 }] },
   // 17 — design idea, accepted soon resolution
-  { cat: 5, type: 'idea', title: 'Библиотека типовых узлов для проектов автоматики', body: 'Предлагаю собрать общую библиотеку типовых узлов и шкафов, чтобы не чертить их заново в каждом проекте.', author: 11, status: 'accepted', created: 160, respond: 8, comments: [{ by: 7, kind: 'comment', body: 'Принимаем. Назначим ответственного за библиотеку и сроки наполнения.', at: 8 }] },
+  { cat: 5, type: 'idea', title: 'Библиотека типовых узлов для проектов автоматики', body: 'Предлагаю собрать общую библиотеку типовых узлов и шкафов, чтобы не чертить их заново в каждом проекте.', author: 11, status: 'in_progress', created: 160, respond: 8, comments: [{ by: 7, kind: 'comment', body: 'Принимаем. Назначим ответственного за библиотеку и сроки наполнения.', at: 8 }] },
   // 18 — unrouted (category 8 has no rule)
   { cat: 8, type: 'idea', title: 'Согласование командировок в один шаг', body: 'Сейчас командировку согласуют три человека по почте, на это уходит до трёх дней. Предлагаю сделать одно согласование у руководителя отдела.', author: 13, status: 'new', created: 20, unrouted: true },
   // 19 — new, soon due (sales 24 h)
@@ -223,14 +223,20 @@ export function buildSeed(now: number = Date.now()): MockDb {
       case 'needs_info':
         change('new', 'in_review', r - 60_000);
         break;
-      case 'accepted':
+      case 'decision':
         change('new', 'in_review', r);
-        change('in_review', 'accepted', r + (now - r) * 0.3);
+        change('in_review', 'decision', r + (now - r) * 0.3);
+        break;
+      case 'in_progress':
+        change('new', 'in_review', r);
+        change('in_review', 'decision', r + (now - r) * 0.3);
+        change('decision', 'in_progress', r + (now - r) * 0.5);
         break;
       case 'implemented':
         change('new', 'in_review', r);
-        change('in_review', 'accepted', r + (c - r) * 0.3);
-        change('accepted', 'implemented', c, s.result);
+        change('in_review', 'decision', r + (c - r) * 0.2);
+        change('decision', 'in_progress', r + (c - r) * 0.4);
+        change('in_progress', 'implemented', c, s.result);
         break;
       case 'declined':
         change('new', 'in_review', r);
@@ -265,7 +271,7 @@ export function buildSeed(now: number = Date.now()): MockDb {
   const notify = (user_id: number, request_id: number, kind: string, title: string, body: string, hoursAgo: number, read = false) =>
     notifications.push({ id: next(), user_id, kind, request_id, title, body, read, created_at: iso(now - hoursAgo * H) });
   notify(1, 10, 'question', 'Нужен ваш ответ по MV-0010', 'Ирина Ковалёва задала уточняющий вопрос.', 46);
-  notify(1, 1, 'status_changed', 'MV-0001: На рассмотрении', 'Обращение взято в работу отделом IT.', 27);
+  notify(1, 1, 'status_changed', 'MV-0001: В проработке', 'Обращение взято в работу отделом IT.', 27);
   notify(1, 1, 'comment', 'Новый комментарий в MV-0001', 'Павел Широков: Проверяем настройки шлюза…', 27);
   notify(1, 12, 'status_changed', 'MV-0012: Реализовано', 'Закупили 30 комплектов СИЗ размеров S–XL.', 304, true);
   notify(1, 25, 'status_changed', 'MV-0025: Реализовано', 'Наборы собраны и выданы во все сервисные машины.', 800, true);

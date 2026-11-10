@@ -19,7 +19,7 @@ export const loginSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>;
 
 function safeNext(next: string | null): string | null {
-  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/login') ? next : null;
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.includes('\\') && !next.startsWith('/login') ? next : null;
 }
 
 export default function LoginPage() {

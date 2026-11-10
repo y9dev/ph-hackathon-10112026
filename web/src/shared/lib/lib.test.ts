@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { plural } from '@/shared/i18n/ru';
 import { formatBytes, formatDateTime, formatHours, formatPercent, initials } from './format';
 import { slaView, waitingDays } from './sla';
-import { parseRequestNumber, sortActions, statusLabel, needsResult, isTerminal } from './status';
+import { actionLabel, parseRequestNumber, sortActions, stageOf, statusLabel, needsResult, isTerminal } from './status';
 import { DEFAULT_FILTERS, filtersFromSearch, filtersToParams, filtersToSearch, hasActiveFilters, patchFilters } from './inboxFilters';
 import type { SlaState } from '@/shared/api/types';
 
@@ -77,17 +77,41 @@ describe('status', () => {
   });
   it('knows closing statuses need a result', () => {
     expect(needsResult('declined')).toBe(true);
-    expect(needsResult('accepted')).toBe(false);
+    expect(needsResult('closed')).toBe(true);
+    expect(isTerminal('closed')).toBe(true);
+    expect(statusLabel('closed')).toBe('Закрыто');
+    expect(actionLabel('new', 'closed')).toBe('Закрыть с результатом');
+    expect(needsResult('decision')).toBe(false);
+    expect(needsResult('in_progress')).toBe(false);
     expect(isTerminal('duplicate')).toBe(true);
   });
   it('orders actions progress-first, closing last', () => {
-    expect(sortActions(['duplicate', 'declined', 'in_review', 'accepted', 'needs_info'])).toEqual([
+    expect(sortActions(['duplicate', 'declined', 'in_review', 'decision', 'needs_info'])).toEqual([
       'in_review',
+      'decision',
       'needs_info',
-      'accepted',
       'declined',
       'duplicate',
     ]);
+  });
+  it('puts "return" actions after forward progress', () => {
+    expect(sortActions(['declined', 'in_review', 'in_progress'], 'decision')).toEqual(['in_progress', 'in_review', 'declined']);
+    expect(sortActions(['declined', 'decision', 'implemented'], 'in_progress')).toEqual(['implemented', 'decision', 'declined']);
+  });
+  it('maps statuses to lifecycle stages', () => {
+    expect(stageOf('new')).toBe('development');
+    expect(stageOf('in_review')).toBe('development');
+    expect(stageOf('needs_info')).toBe('development');
+    expect(stageOf('decision')).toBe('decision');
+    expect(stageOf('in_progress')).toBe('implementation');
+    expect(stageOf('declined')).toBeNull();
+  });
+  it('labels lifecycle actions by transition', () => {
+    expect(actionLabel('new', 'in_review')).toBe('Взять в проработку');
+    expect(actionLabel('in_review', 'decision')).toBe('Передать на решение');
+    expect(actionLabel('decision', 'in_review')).toBe('Вернуть на доработку');
+    expect(actionLabel('decision', 'in_progress')).toBe('Начать реализацию');
+    expect(actionLabel('in_progress', 'implemented')).toBe('Завершить с результатом');
   });
   it('parses request numbers in several spellings', () => {
     expect(parseRequestNumber('MV-0012')).toBe('MV-0012');

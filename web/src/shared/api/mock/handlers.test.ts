@@ -95,6 +95,79 @@ describe('mock API contract', () => {
     expect(list.items.every((r) => r.status === 'new' || r.sla.state === 'overdue')).toBe(true);
   });
 
+  it('walks the customer lifecycle and gates progress reports by status', () => {
+    const { call, login } = setup();
+    login('it.head@modus.demo');
+    const before = call<RequestDetail>('GET', '/requests/6').body;
+    expect(before.status).toBe('new');
+    expect(before.allowed_statuses).toEqual(expect.arrayContaining(['in_review', 'decision']));
+    expect(before.allowed_statuses).not.toContain('in_progress');
+    expect(before.allowed_comment_kinds).not.toContain('report');
+    expect(call('POST', '/requests/6/comments', { kind: 'report', body: 'рано' }).status).toBe(409);
+
+    expect(call<RequestDetail>('POST', '/requests/6/status', { status: 'in_review' }).body.status).toBe('in_review');
+    const dec = call<RequestDetail>('POST', '/requests/6/status', { status: 'decision' }).body;
+    expect(dec.allowed_statuses.sort()).toEqual(['closed', 'declined', 'in_progress', 'in_review']);
+    const prog = call<RequestDetail>('POST', '/requests/6/status', { status: 'in_progress' }).body;
+    expect(prog.allowed_comment_kinds).toContain('report');
+    expect(prog.allowed_statuses.sort()).toEqual(['closed', 'decision', 'declined', 'implemented']);
+
+    const rep = call<RequestDetail>('POST', '/requests/6/comments', { kind: 'report', body: 'Заказали картридж' });
+    expect(rep.status).toBe(201);
+    expect(rep.body.timeline.filter((t) => t.kind === 'report').at(-1)).toMatchObject({ kind: 'report', text: 'Заказали картридж' });
+
+    // The author sees the report and gets a notification.
+    login('timur@modus.demo');
+    const mine = call<RequestList>('GET', '/requests?scope=mine&page_size=100').body.items.find((r) => r.id === 6);
+    if (mine) {
+      const d = call<RequestDetail>('GET', '/requests/6').body;
+      expect(d.timeline.some((t) => t.kind === 'report')).toBe(true);
+      expect(d.allowed_comment_kinds).not.toContain('report');
+    }
+  });
+
+  it('offers "closed" from every non-terminal status and requires a result', () => {
+    const { call, login } = setup();
+    login('admin@modus.demo');
+    const list = call<RequestList>('GET', '/requests?scope=all&tab=all&page_size=100').body.items;
+    for (const s of ['new', 'in_review', 'needs_info', 'decision', 'in_progress'] as const) {
+      const r = list.find((x) => x.status === s);
+      expect(r, s).toBeTruthy();
+      const d = call<RequestDetail>('GET', `/requests/${r!.id}`).body;
+      expect(d.allowed_statuses, s).toContain('closed');
+    }
+    const target = list.find((x) => x.status === 'decision')!;
+    expect(call('POST', `/requests/${target.id}/status`, { status: 'closed' }).status).toBe(400);
+    const done = call<RequestDetail>('POST', `/requests/${target.id}/status`, { status: 'closed', result_text: 'Решено без доработок' });
+    expect(done.status).toBe(200);
+    expect(done.body.status).toBe('closed');
+    expect(done.body.allowed_statuses).toEqual([]);
+    const tab = call<RequestList>('GET', '/requests?scope=all&tab=closed&page_size=100').body;
+    expect(tab.items.some((x) => x.id === target.id)).toBe(true);
+  });
+
+  it('migrates accepted-era data: no accepted status, tabs follow the new lifecycle', () => {
+    const { call, login, db } = setup();
+    expect(db.requests.some((r) => (r.status as string) === 'accepted')).toBe(false);
+    login('admin@modus.demo');
+    const tab = call<RequestList>('GET', '/requests?scope=all&tab=in_progress&page_size=100').body;
+    expect(tab.items.length).toBeGreaterThan(0);
+    expect(tab.items.every((r) => ['in_review', 'decision', 'in_progress'].includes(r.status))).toBe(true);
+    const meta = call<{ statuses: { id: string }[] }>('GET', '/meta').body;
+    expect(meta.statuses.map((s) => s.id)).toEqual(['new', 'in_review', 'needs_info', 'decision', 'in_progress', 'implemented', 'declined', 'duplicate', 'closed']);
+  });
+
+  it('returns 404 for an unknown theme and 429 when creating comments too fast', () => {
+    const { call, login } = setup();
+    login('it.head@modus.demo');
+    const t = call<{ error: { message: string } }>('POST', '/requests/6/theme', { theme_id: 9999 });
+    expect(t.status).toBe(404);
+    expect(t.body.error.message).toBeTruthy();
+    let last = 0;
+    for (let i = 0; i < 32; i++) last = call('POST', '/requests/6/comments', { kind: 'internal', body: `n${i}` }).status;
+    expect(last).toBe(429);
+  });
+
   it('rejects a duplicate active routing rule with 409', () => {
     const { call, login } = setup();
     login('admin@modus.demo');

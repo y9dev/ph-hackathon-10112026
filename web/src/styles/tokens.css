@@ -31,14 +31,18 @@
   --status-in-review-soft: #efe8fb;
   --status-needs-info: #b45309;
   --status-needs-info-soft: #fdf0e1;
-  --status-accepted: #0b7a75;
-  --status-accepted-soft: #ddf3f1;
+  --status-decision: #a1306b;
+  --status-decision-soft: #fbe6f0;
+  --status-in-progress: #0a706b;
+  --status-in-progress-soft: #ddf3f1;
   --status-implemented: #1b7f43;
   --status-implemented-soft: #e3f3e9;
   --status-declined: #52636e;
   --status-declined-soft: #eef2f4;
   --status-duplicate: #52636e;
   --status-duplicate-soft: #eef2f4;
+  --status-closed: #4a5a64;
+  --status-closed-soft: #eef2f4;
 
   --chart-1: #0b7a75;
   --chart-2: #2457c5;
@@ -82,14 +86,18 @@
   --status-in-review-soft: #2a1f45;
   --status-needs-info: #f0a85a;
   --status-needs-info-soft: #3a2610;
-  --status-accepted: #34c5bc;
-  --status-accepted-soft: #123b3a;
+  --status-decision: #f2a3c9;
+  --status-decision-soft: #3d1630;
+  --status-in-progress: #34c5bc;
+  --status-in-progress-soft: #123b3a;
   --status-implemented: #62cc8d;
   --status-implemented-soft: #11301f;
   --status-declined: #9fb1ba;
   --status-declined-soft: #1c292f;
   --status-duplicate: #9fb1ba;
   --status-duplicate-soft: #1c292f;
+  --status-closed: #b4c2c9;
+  --status-closed-soft: #1c292f;
 
   --chart-1: #34c5bc;
   --chart-2: #86a9f5;
@@ -134,14 +142,18 @@
     --status-in-review-soft: #2a1f45;
     --status-needs-info: #f0a85a;
     --status-needs-info-soft: #3a2610;
-    --status-accepted: #34c5bc;
-    --status-accepted-soft: #123b3a;
+    --status-decision: #f2a3c9;
+    --status-decision-soft: #3d1630;
+    --status-in-progress: #34c5bc;
+    --status-in-progress-soft: #123b3a;
     --status-implemented: #62cc8d;
     --status-implemented-soft: #11301f;
     --status-declined: #9fb1ba;
     --status-declined-soft: #1c292f;
     --status-duplicate: #9fb1ba;
     --status-duplicate-soft: #1c292f;
+    --status-closed: #b4c2c9;
+    --status-closed-soft: #1c292f;
 
     --chart-1: #34c5bc;
     --chart-2: #86a9f5;

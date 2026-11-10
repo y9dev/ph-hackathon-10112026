@@ -39,10 +39,18 @@ accounts is `demo12345`.
 `src/shared/api/mock/` is a fetch interceptor installed only when `VITE_MOCK=1` (it is code-split and never
 loaded otherwise). It implements `docs/api/openapi.yaml` exactly: error envelope, scopes and tabs with counters,
 the AuthorView masking for anonymous requests, `allowed_statuses` / `allowed_comment_kinds` (transition table
-from ARCHITECTURE §11 R4), SLA states incl. pause in `needs_info`, routing rules, similarity groups,
+from ARCHITECTURE §11 R4, lifecycle per §12 R10: new/in_review/needs_info -> decision -> in_progress -> terminal incl. `closed`; `report` comments; 429/409/404 error cases), SLA states incl. pause in `needs_info`, routing rules, similarity groups,
 notifications and admin CRUD with 409s. State lives in `sessionStorage` (survives reloads, resets in a new tab);
 `window.__mvMockReset()` restores the seed. `?mockLatency=0` in the URL removes the artificial delay.
 `handlers.test.ts` pins the contract-critical behaviour so the UI is never tested against a wrong mock.
+
+## Request lifecycle UI
+
+`shared/ui/StageStepper.tsx` shows the three customer stages (Разработка -> Принятие решения -> Реализация, plus the final
+state) derived from `status` via `shared/lib/status.ts#stageOf`; `needs_info` is a "Ждём автора" badge on the first stage.
+`features/request-detail/LifecycleCard.tsx` adds the "what next" hint (author) and the latest progress report.
+Staff actions come from `allowed_statuses` (labels per transition in `actionLabel`); the "Отчёт" composer option
+appears only when `allowed_comment_kinds` contains `report`.
 
 ## Structure
 
