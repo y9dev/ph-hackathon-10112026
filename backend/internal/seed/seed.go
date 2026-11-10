@@ -156,7 +156,6 @@ type reqState struct {
 	result                *string
 	dupOf                 *int64
 	cur                   time.Time
-	notes                 int
 }
 
 func (s *seeder) requests() error {
