@@ -12,7 +12,7 @@ Nothing here is required for the MVP; the MVP ships the seams (ports, events, ou
 |---|---|---|---|---|---|
 | 1 | **Bitrix24** — users & org structure | Replace manual user/department admin | In: employees, departments, heads, active flag. Out: none | Bitrix24 REST (`user.get`, `department.get`) via `DirectoryProvider`, nightly + on-demand sync | Cloud or on-prem? Webhook vs OAuth app? Which field marks department head? |
 | 2 | **Bitrix24** — SSO | One login for employees | In: identity | OAuth2/OIDC via `IdentityProvider`; keep local admin fallback | Is Bitrix24 the identity source or AD/LDAP? |
-| 3 | **Bitrix24** — tasks | Turn accepted improvements into tracked work | Out: title, link, deadline, assignee. In: task status → request status | `TaskSink` adapter: `tasks.task.add` on `request.accepted`; webhook/poll back for completion | Which project/group? Who owns created tasks? |
+| 3 | **Bitrix24** — tasks | Turn accepted improvements into tracked work | Out: title, link, deadline, assignee. In: task status → request status | `TaskSink` adapter: `tasks.task.add` on the transition to `in_progress`; webhook/poll back for completion | Which project/group? Who owns created tasks? |
 | 4 | **Bitrix24** — notifications | Reach people where they already work | Out: notification text + deep link | `Notifier` adapter: `im.notify` / `im.message.add` | Bot or personal notification? |
 | 5 | **E-mail (SMTP)** | Notify when away from Bitrix24 | Out: same events | `Notifier` adapter, digest option | Corporate SMTP relay? |
 | 5a | **Telegram bot** | Notify and let employees answer clarifications where they already chat (customer context: oral/chat culture) | Out: notification + deep link; In (later): reply to a `question` | `Notifier` adapter via Bot API; account linking by one-time code from profile page; no request text beyond title in the message | Is Telegram allowed for work data? Corporate bot owner? |
@@ -21,7 +21,7 @@ Nothing here is required for the MVP; the MVP ships the seams (ports, events, ou
 
 ## Integration-readiness in the MVP
 - OpenAPI contract in `docs/api/openapi.yaml`; versioned `/api/v1`.
-- Outbox table + generic **webhook adapter** (built; points at any URL, HMAC-signed) — the demo can show events landing in a webhook inspector.
+- Outbox table schema is documented (not built in the MVP); webhook adapter is planned. The MVP ships the event bus, `Notifier` port and the in-app notifier.
 - `Notifier` and `DirectoryProvider` ports with in-app/seed implementations.
 - Users keep an optional `external_id` + `source` column (added in migration 0001) for directory sync mapping.
 - Service-token auth path reserved in `identity` for machine clients.

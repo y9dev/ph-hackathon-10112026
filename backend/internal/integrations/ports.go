@@ -56,7 +56,7 @@ type Task struct {
 	AssigneeRef string
 }
 
-// TaskSink creates tasks in an external tracker (Bitrix24 tasks.task.add) on request.accepted.
+// TaskSink creates tasks in an external tracker (Bitrix24 tasks.task.add) on the transition to in_progress.
 type TaskSink interface {
 	CreateTask(ctx context.Context, t Task) (externalID string, err error)
 }

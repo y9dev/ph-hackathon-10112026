@@ -497,7 +497,7 @@ function ThemesCard({ q }: { q: UseQueryResult<ItemsOf<Theme>> }) {
             {q.data.items.map((t) => (
               <li key={t.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-text">{t.title}</p>
+                  <p className="min-w-0 text-sm font-medium text-text [overflow-wrap:anywhere]">{t.title}</p>
                   <p className="mt-0.5 text-xs text-muted">{t.categories.join(', ')}</p>
                 </div>
                 <div className="shrink-0 text-right">

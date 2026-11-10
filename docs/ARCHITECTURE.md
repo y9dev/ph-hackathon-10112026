@@ -34,7 +34,7 @@ Rejected: microservices/queues/Redis (no need at this scale), ORM (hidden SQL, e
 │     │  ├─ requests/        core: requests, workflow, comments, history, attachments, routing engine, SLA
 │     │  ├─ insights/        similarity/themes + analytics queries
 │     │  └─ notifications/   in-app notifications + subscriber to domain events
-│     ├─ integrations/       PORTS (interfaces) + adapters: inapp, webhook (built); bitrix24, onec, email (documented stubs)
+│     ├─ integrations/       PORTS (interfaces) + adapters: log/in-app notifier (built); webhook, bitrix24, onec, email (documented stubs, planned)
 │     └─ seed/               synthetic demo data
 │     └─ webui/              embed.go (+ dist/ built SPA)
 │       module shape: domain.go (types+rules) · service.go (use cases) · store.go (interface) · store_sqlite.go · http.go (handlers) · module.go (Register(deps) → routes, subscriptions) · *_test.go
@@ -67,7 +67,7 @@ outbox(id, topic, payload_json, status[pending|sent|failed], attempts, next_atte
 Indexes: requests(status, assignee_id), (department_id, status), (author_id), (first_response_due), (theme_id), (created_at); notifications(user_id, read_at).
 
 ## 4. Workflow
-Statuses: `new → in_review ⇄ needs_info → accepted → implemented`; terminal: `implemented`, `declined`, `duplicate`.
+Statuses (superseded by §12 R10): `new → in_review ⇄ needs_info → decision → in_progress → implemented`; terminal: `implemented`, `declined`, `duplicate`, `closed`.
 Allowed transitions enforced in `requests/domain.go` (table-driven, unit-tested). Closing (`implemented|declined|duplicate`) requires `result_text` (duplicate requires `duplicate_of`). Author's answer to a `question` auto-moves `needs_info → in_review`. `first_responded_at` = first manager action (comment, question or status change) by someone other than the author.
 **Routing engine** (on create, one transaction): find active rule by (category, type) → else (category) → else unrouted. Sets department, assignee, deadlines; unrouted ⇒ admin queue, `routing_source=unrouted`. Manual reassign writes an event.
 **SLA/overdue:** computed at read time from deadlines (`now > due && !first_responded_at`); a 1-minute ticker in-process emits `request.overdue` once per request (idempotent via event table) for notification/escalation.
@@ -90,10 +90,10 @@ Anonymity: `requests.author_id` is internal; DTO mappers drop `author` for non-a
 POST /api/v1/auth/login · POST /logout · GET /me
 GET  /meta                          categories, departments, enums (for forms)
 POST /requests (multipart: json+files)   GET /requests?scope=mine|inbox|all&status&category&q&overdue&page
-GET  /requests/{id}    PATCH /requests/{id}/status   POST /requests/{id}/assign   POST /requests/{id}/duplicate
+GET  /requests/{id}    POST /requests/{id}/status   POST /requests/{id}/assign   POST /requests/{id}/theme
 GET/POST /requests/{id}/comments    GET /attachments/{id}
-GET  /requests/{id}/similar-count   (aggregate only for authors; full list for managers)
-GET  /analytics/summary|timeseries|categories|themes
+(similar count and similar items are part of the request detail: `similar`; staff only get items)
+GET  /analytics/summary|suggested-groups   GET /themes   (source of truth: docs/api/openapi.yaml)
 GET/POST/PATCH /admin/categories, /admin/routing-rules, /admin/users, /admin/departments
 GET  /notifications   POST /notifications/read
 GET  /healthz
@@ -101,7 +101,7 @@ GET  /healthz
 Errors: `{ "error": { "code": "...", "message": "ru text", "fields": {...} } }`. Pagination: `page`,`page_size`. All inputs validated server-side (length, enum, size, file allowlist png/jpg/pdf/docx/xlsx/txt, ≤10 MB total).
 
 ## 7. Events & integration seams
-In-process bus publishes: `request.created|assigned|status_changed|commented|question_asked|answered|overdue|closed`. Subscribers: notifications (in-app), outbox writer (same transaction → at-least-once webhook delivery with retry/backoff). Ports in `integrations/`: `Notifier`, `DirectoryProvider`, `TaskSink`, `IdentityProvider`. See `INTEGRATIONS.md`.
+In-process bus publishes: `request.created|assigned|status_changed|commented|question_asked|answered|overdue|closed`. Subscribers: notifications (in-app), outbox writer (planned, not built: same transaction → at-least-once webhook delivery with retry/backoff). Ports in `integrations/`: `Notifier`, `DirectoryProvider`, `TaskSink`, `IdentityProvider`. See `INTEGRATIONS.md`.
 
 ## 8. Security basics (hackathon floor)
 No secrets in repo (`.env.example`; secret generated at first run for cookies); bcrypt; login rate limit; per-request authorization in services; parameterized SQL only; upload allowlist + random stored names + `Content-Disposition: attachment` + size cap; security headers (CSP, X-Content-Type-Options, Referrer-Policy); demo-account quick login only when `DEMO_MODE=true`; output is JSON (React escapes HTML).
@@ -113,10 +113,10 @@ Phase 1 (this MVP): SQLite single node. Phase 2: PostgreSQL stores (same interfa
 Added vs §3: `users.title`, `requests.paused_at` (SLA pause), `counters` (request numbers), `schema_migrations`; `request_events` uses `from_status/to_status/text/meta` columns instead of `payload_json`; `themes.created_by`; times stored as INTEGER unix seconds. Behaviour notes: login throttle keys on the TCP peer (behind a reverse proxy configure the proxy to pass real IPs — not trusted by default); first response = first staff comment/question/status change/assign (internal notes and theme links do not count); authors cannot comment on closed requests.
 
 ## 11. Review resolutions (independent review, 2026-11-10; overrides earlier sections where they conflict)
-- **R1 Scope/build order (F1):** slice 1 submit→route→inbox→status→close-with-result→my-requests+timeline+in-app notifications; slice 2 comments/clarification, attachments (≤5 files, 10 MB, magic-byte check), filters/search; slice 3 dashboard (4 TZ KPIs + by category) and suggested groups; slice 4 admin (rules/categories/users as compact tables), CSV export, polish. **Not built:** outbox dispatcher + webhook adapter (documented in INTEGRATIONS with port signatures; only the in-process event bus and the `outbox` table schema are kept). Hand-written short `openapi.yaml`. Playwright covers J1–J4 smoke only.
+- **R1 Scope/build order (F1):** slice 1 submit→route→inbox→status→close-with-result→my-requests+timeline+in-app notifications; slice 2 comments/clarification, attachments (≤5 files, 10 MB, magic-byte check), filters/search; slice 3 dashboard (4 TZ KPIs + by category) and suggested groups; slice 4 admin (rules/categories/users as compact tables), CSV export, polish. **Not built:** outbox dispatcher + webhook adapter (documented in INTEGRATIONS with port signatures; only the in-process event bus and the `outbox` table schema are kept). Hand-written short `openapi.yaml`. Playwright covers J1–J5, guards and UX-audit regression specs.
 - **R2 Anonymity (F2):** it is *pseudonymous*, not anonymous: the DB keeps `author_id` so the author can track/answer; every outgoing view (DTOs, timeline, notifications, CSV export, event payloads) goes through one `AuthorView` mapper that replaces author and actor with "Автор (анонимно)". Automated test serializes every endpoint for an anonymous request and asserts no author id/name/email. UI states the limits (admin with DB access, content/attachments/timing may reveal identity; EXIF not stripped → warning). Similar-request lists for managers show only a score + title of requests already in their scope.
 - **R3 SLA (F3):** two deadlines — first response and resolution (`resolution_due`); both flagged overdue; clock paused in `needs_info` (due dates shift by paused duration). If assignee inactive/unset → department head → unrouted (admin queue). Overdue notice: owner immediately, admins after +24 h.
-- **R4 Transitions (F4):** `new→{in_review,needs_info,accepted,declined,duplicate}`, `in_review→{needs_info,accepted,declined,duplicate}`, `needs_info→in_review` (author answer, also for anonymous authors via own-request endpoint), `accepted→{implemented,declined}`; terminal: implemented/declined/duplicate; any terminal needs result text; no reopen in MVP (author may file a new request referencing the old number). Any staff action on `new` counts as first response.
+- **R4 Transitions (F4, SUPERSEDED by §12 R10 for the status list):** `new→{in_review,needs_info,accepted,declined,duplicate}`, `in_review→{needs_info,accepted,declined,duplicate}`, `needs_info→in_review` (author answer, also for anonymous authors via own-request endpoint), `accepted→{implemented,declined}`; terminal: implemented/declined/duplicate; any terminal needs result text; no reopen in MVP (author may file a new request referencing the old number). Any staff action on `new` counts as first response.
 - **R5 Data (F5):** drop `search_tokens` (compute similarity on the fly; scale is small); `theme_id` kept as manager-confirmed grouping, `duplicate_of` closes a request; UNIQUE(category_id, request_type) among active rules, type NULL = any; add `users.external_id`, `users.source`; `internal` comments never returned to authors (tested); request number from a counter row updated in the same transaction.
 - **R6 Layout (F6):** notification creation is a synchronous interface call inside the request transaction (AC-08); the bus serves non-critical subscribers; routing/SLA in `requests/routing.go`, `requests/sla.go`; `insights` reads through a read-only query interface; `webui/` sits directly under `internal/`.
 - **R7 Security (F7):** `Secure` cookie flag when HTTPS, `DEMO_MODE` default off (compose turns it on, UI banner), per-account login throttle, upload magic-byte sniffing.
@@ -124,7 +124,7 @@ Added vs §3: `users.title`, `requests.paused_at` (SLA pause), `counters` (reque
 - **R9 Docs (F10):** add `ROADMAP.md`, `DEMO_SCRIPT.md` at the end.
 
 ## 12. Sponsor input (video, 2026-11-10) — R10, overrides R4 status list
-The customer named three lifecycle stages: **Разработка → Принятие решения → Реализация**, with the responsible person reporting progress (FR-07, FR-08 Critical). Statuses are therefore: `new`, `in_review` (stage Разработка), `needs_info`, `decision` (stage Принятие решения), `in_progress` (stage Реализация), terminal `implemented`, `declined`, `duplicate`. `accepted` is removed (migration: existing `accepted` → `in_progress`).
+The customer named three lifecycle stages: **Разработка → Принятие решения → Реализация**, with the responsible person reporting progress (FR-07, FR-08 Critical). Statuses are therefore: `new`, `in_review` (stage Разработка), `needs_info`, `decision` (stage Принятие решения), `in_progress` (stage Реализация), terminal `implemented`, `declined`, `duplicate`, `closed`. `accepted` is removed (migration: existing `accepted` → `in_progress`).
 Transitions: `new→{in_review,needs_info,decision,declined,duplicate}`; `in_review→{needs_info,decision,declined,duplicate}`; `needs_info→in_review` (author answer); `decision→{in_progress,in_review,declined}` (`in_review` = return for rework); `in_progress→{implemented,declined,decision}`. Terminal statuses require `result_text`.
 **Added on user request: status `closed` ("Закрыто")**, terminal, for requests resolved without implementation (answered, resolved otherwise, no longer relevant). Reachable from every non-terminal status (`new`, `in_review`, `needs_info`, `decision`, `in_progress`), requires `result_text`, stage "done". The list tab `closed` (terminal group) is unaffected; the status label is "Закрыто".
 New comment kind **`report`** (progress report): staff only, allowed while status ∈ {in_review, decision, in_progress}, visible to the author, notifies the author, counts as first response, rendered in the timeline as "Отчёт о ходе". UI shows a 3-stage stepper (Разработка · Принятие решения · Реализация) derived from status on the request card and in lists.

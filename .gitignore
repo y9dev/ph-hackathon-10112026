@@ -13,3 +13,4 @@ backend/internal/webui/dist/*
 test-results/
 playwright-report/
 .omc/
+~$*

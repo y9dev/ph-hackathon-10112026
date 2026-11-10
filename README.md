@@ -29,6 +29,7 @@ make backend-demo    # запустить сервер с демо-данным�
 | Сотрудник | Анна Петрова (продажи) | a.petrova@modus.demo |
 | Руководитель | Елена Кузнецова (IT-разработка) | e.kuznetsova@modus.demo |
 | Руководитель | Сергей Волков (сервис) | s.volkov@modus.demo |
+| Руководитель | Игорь Громов (пусконаладка) | i.gromov@modus.demo |
 | Администратор | Мария Орлова | admin@modus.demo |
 
 Сценарий показа: [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
@@ -71,7 +72,7 @@ docs/               PRD, ARCHITECTURE, UX_SPECIFICATION, INTEGRATIONS, TZ_COMPLI
 ```bash
 make backend-check     # gofmt, go vet, go test
 cd web && npm run lint && npm test
-cd web && npm run e2e  # Playwright, сценарии подачи, отслеживания, рассмотрения, уточнения
+cd web && npm run e2e  # Playwright на моках; на реальном бэкенде: E2E_BASE_URL=http://localhost:8080 npx playwright test -c playwright.real.config.ts e2e/journeys.spec.ts
 ```
 
 ## Документация

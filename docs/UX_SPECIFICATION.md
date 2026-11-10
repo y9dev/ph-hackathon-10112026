@@ -19,7 +19,7 @@ Flow map:
 |---|---|---|---|---|---|---|
 | J1 Submit | Employee | Sees a problem/idea | + Новое → type (Проблема/Предложение) → category cards → title → description → (optional proposed solution, files, anonymity) → Отправить | Success page: number MV-0042, "Передано: отдел IT, ответ до 12.11", link "Следить" | Validation inline; routing unmatched → still accepted, says "передано администратору"; upload errors per file; draft preserved in localStorage | Routing preview shown *before* submit; toast + success screen |
 | J2 Track | Employee | Wants status | Мои обращения → card → timeline | Sees status, owner dept, deadline, decision | Empty state with CTA; anonymous marker | Notification bell + unread dot; status chip in list |
-| J3 Review | Manager | New/overdue request | Входящие (tab "Требуют реакции") → open → choose action: Взять в работу / Запросить уточнение / Принять / Отклонить / Дубликат → result form | Status changes, timeline entry, author notified | Closing without result blocked with inline message; reassign to other dept | Toast "Автор уведомлён"; SLA chip updates |
+| J3 Review | Manager | New/overdue request | Входящие (tab "Требуют реакции") → open → choose action: Взять в проработку → Перейти к принятию решения → Начать реализацию (confirm dialog with optional message to the author) · Запросить уточнение · Отчёт о ходе · Завершить / Закрыть без реализации / Отклонить / Дубликат → result form (required) | Status changes, timeline entry, author notified | Closing without result blocked with inline message; reassign to other dept | Toast "Автор уведомлён"; SLA chip updates |
 | J4 Clarify | Manager→Author | Missing info | Manager "Запросить уточнение" (status needs_info) → author sees banner "Нужен ваш ответ" → answers | Back to "На рассмотрении", SLA resumes | Author never answers: reminder visible in manager list ("ждём автора N дн.") | Notifications both ways |
 | J5 Analyse | Manager/Admin | Weekly review | Аналитика → period/department filter → KPIs → groups → drill into list | Insight on recurring issues | Empty period state | Tooltips explain each metric |
 | J6 Configure | Admin | Org changes | Администрирование → Маршрутизация table → edit row (dialog) | Next request follows rule | Duplicate rule rejected with message | Toast |
@@ -45,7 +45,7 @@ All interactive components: default, hover, focus-visible (2 px ring), active, d
 --text:#16232B;         --text-muted:#52636E;   (contrast on --bg ≥ 7:1 / 5.2:1)
 --brand:#0B7A75;        --brand-hover:#096762;  --brand-soft:#DDF3F1;  --on-brand:#FFFFFF
 --info:#2457C5; --success:#1B7F43; --warning:#B45309; --danger:#B42318; (each with -soft bg)
-status: new #2457C5 · in_review #6D3FC4 · needs_info #B45309 · accepted #0B7A75 · implemented #1B7F43 · declined #52636E · duplicate #52636E
+status (updated after audit, contrast ≥4.5:1 on soft bg): new #2457C5 · in_review #6D3FC4 · needs_info #9A4507 · decision #A1306B · in_progress #0A6E69 · implemented #176A38 · declined #52636E · duplicate #52636E · closed #4A5A64; brand text #0A6E69, warning #9A4507, success #176A38 (light)
 dark: --bg:#0E1619 --surface:#151F24 --surface-2:#1C292F --border:#2B3B43 --text:#E6EEF1 --text-muted:#9FB1BA --brand:#34C5BC --brand-soft:#123B3A
 font: Inter (self-hosted, cyrillic subset), system fallback; sizes 12/14/16/20/24/32; line-height 1.5 body, 1.25 headings
 space: 4-pt scale (4,8,12,16,24,32,48); radius: 8 (controls) · 12 (cards) · 999 (chips)
