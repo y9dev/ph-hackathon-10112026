@@ -14,7 +14,7 @@
 Проверка: `go version` и `node -v`.
 
 1. Собрать интерфейс (результат попадёт в `backend/internal/webui/dist`, откуда его раздаёт сервер):
-```bash
+```cmd
 cd web
 npm ci
 npm run build
@@ -27,16 +27,17 @@ cd backend
 $env:DEMO_MODE = "true"
 go run ./cmd/server --seed
 ```
-bash (Linux, macOS, Git Bash):
-```bash
+cmd (Windows):
+```cmd
 cd backend
-DEMO_MODE=true go run ./cmd/server --seed
+set DEMO_MODE=true
+go run ./cmd/server --seed
 ```
 Откройте http://localhost:8080.
 
 ### Вариант 2. Docker (не рекомендуется для демо)
 Требует работающий Docker Desktop; первая сборка долгая (скачивание образов и зависимостей), а при сбое движка Docker Desktop сборка может упасть.
-```bash
+```cmd
 docker compose up --build
 ```
 Откройте http://localhost:8080. Данные синтетические, загружаются автоматически при первом запуске.
@@ -98,7 +99,7 @@ docs/               PRD, ARCHITECTURE, UX_SPECIFICATION, INTEGRATIONS, TZ_COMPLI
 Новый модуль = папка в `backend/internal/modules/` + строка в `backend/internal/app/modules.go`; новая фича интерфейса = папка в `web/src/features/` + запись в роутере. Подробности: [backend/README.md](backend/README.md), [web/README.md](web/README.md).
 
 ## Проверка качества
-```bash
+```cmd
 make backend-check     # gofmt, go vet, go test
 cd web && npm run lint && npm test
 cd web && npm run e2e  # Playwright на моках; на реальном бэкенде: E2E_BASE_URL=http://localhost:8080 npx playwright test -c playwright.real.config.ts e2e/journeys.spec.ts
