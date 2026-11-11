@@ -57,8 +57,6 @@ func main() {
 		log.Warn("DEMO_MODE is on: demo accounts are listed on the login screen")
 	}
 
-	startupPing()
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := a.Run(ctx); err != nil {

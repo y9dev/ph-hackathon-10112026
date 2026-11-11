@@ -87,6 +87,18 @@ function SubmitForm({ meta }: { meta: Meta }) {
   const [files, setFiles] = useState<File[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | undefined>();
+  // null while unknown; false when this browser holds a token of a request marked as spam (server decides)
+  const [anonAllowed, setAnonAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api
+      .anonymousStatus()
+      .then((s) => alive && setAnonAllowed(s.anonymous_allowed))
+      .catch(() => alive && setAnonAllowed(null));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const form = useForm<SubmitValues>({
     resolver: zodResolver(makeSubmitSchema(limits)),
@@ -327,7 +339,13 @@ function SubmitForm({ meta }: { meta: Meta }) {
             control={control}
             name="is_anonymous"
             render={({ field }) => (
-              <Switch checked={field.value} onCheckedChange={field.onChange} label={ru.submit.anonymous} description={ru.submit.anonymousText} />
+              <Switch
+                checked={anonAllowed === false ? false : field.value}
+                onCheckedChange={field.onChange}
+                label={ru.submit.anonymous}
+                description={anonAllowed === false ? ru.submit.anonymousBlocked : ru.submit.anonymousText}
+                disabled={anonAllowed === false}
+              />
             )}
           />
         </div>

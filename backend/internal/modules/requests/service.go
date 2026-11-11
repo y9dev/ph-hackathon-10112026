@@ -386,6 +386,7 @@ func (s *Service) buildDetail(ctx context.Context, a authz.Actor, r DetailRow) (
 		d.Attachments = append(d.Attachments, AttachmentView{ID: at.ID, Filename: at.Filename, MIME: at.MIME, Size: at.Size})
 	}
 	d.AllowedStatuses, d.AllowedCommentKinds, d.CanAssign = allowedFor(r.Row, a)
+	d.CanMarkSpam = d.Author.Anonymous && a.IsStaff() && canManage(a, r.Row)
 	if a.UserID == anonSelfID {
 		// token holder: the server picks the kind (answer while needs_info, else comment)
 		switch {
@@ -456,6 +457,11 @@ func (s *Service) filter(a authz.Actor, q ListQuery) (ListFilter, error) {
 			return ListFilter{}, err
 		}
 		f.ScopeSQL, f.ScopeArgs = authz.ScopeSQL(a, "r.department_id", "r.assignee_id")
+		// requests without an owner are visible to every staff member in the inbox: anyone can see
+		// them, and only the admin (or the owner once assigned) can set the department and assignee
+		if a.Role == authz.RoleManager {
+			f.ScopeSQL = "(" + f.ScopeSQL + " OR r.assignee_id IS NULL)"
+		}
 	case "all":
 		if err := authz.RequireStaff(a); err != nil {
 			return ListFilter{}, err

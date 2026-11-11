@@ -167,10 +167,17 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, apperr.BadRequest("Ожидается multipart/form-data или JSON"))
 		return
 	}
+	if in.IsAnonymous && anonBlockedByCookie(r) {
+		httpx.Error(w, r, spamBlockedError())
+		return
+	}
 	d, err := h.svc.Create(r.Context(), actor(r), in, uploads)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
+	}
+	if d.AnonymousToken != nil {
+		rememberAnonToken(w, r, *d.AnonymousToken)
 	}
 	httpx.JSON(w, http.StatusCreated, d)
 }
@@ -367,6 +374,7 @@ func mountRoutes(h *handler, pub, priv chi.Router) {
 	pub.Post("/anonymous/lookup", h.anonLookup)
 	pub.Post("/anonymous/comments", h.anonComment)
 	pub.Get("/anonymous/attachments/{id}", h.anonAttachment)
+	pub.Post("/anonymous/status", h.anonStatus)
 	priv.Get("/meta", h.meta)
 	priv.Get("/routing/preview", h.preview)
 	priv.Get("/requests", h.list)
@@ -375,6 +383,7 @@ func mountRoutes(h *handler, pub, priv chi.Router) {
 	priv.Get("/requests/{id}", h.get)
 	priv.Post("/requests/{id}/status", h.status)
 	priv.Post("/requests/{id}/assign", h.assign)
+	priv.Post("/requests/{id}/spam", h.markSpam)
 	priv.Post("/requests/{id}/comments", h.comment)
 	priv.Post("/requests/{id}/theme", h.theme)
 	priv.Get("/attachments/{id}", h.attachment)

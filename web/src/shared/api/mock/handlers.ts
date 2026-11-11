@@ -304,6 +304,7 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
       allowed_statuses: allowed,
       allowed_comment_kinds: kinds,
       can_assign: staff && !terminal,
+      can_mark_spam: staff && r.is_anonymous,
       similar: {
         count: sims.length,
         items: isStaff(viewer) && !isAuthor
@@ -564,6 +565,21 @@ export function createHandlers(db: MockDb, now: () => number = Date.now) {
 
   type Handler = (req: MockRequest, m: RegExpMatchArray) => MockResponse;
   const routes: [string, RegExp, Handler][] = [
+    [
+      'POST',
+      /^\/anonymous\/status$/,
+      () => ok({ anonymous_allowed: true }),
+    ],
+    [
+      'POST',
+      /^\/requests\/(\d+)\/spam$/,
+      (_req, m) => {
+        const id = Number(m[1]);
+        const i = db.requests.findIndex((x) => x.id === id);
+        if (i >= 0) db.requests.splice(i, 1);
+        return noContent();
+      },
+    ],
     [
       'POST',
       /^\/auth\/login$/,

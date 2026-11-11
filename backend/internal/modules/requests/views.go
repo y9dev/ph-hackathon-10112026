@@ -96,6 +96,7 @@ type Detail struct {
 	AllowedStatuses     []Status         `json:"allowed_statuses"`
 	AllowedCommentKinds []string         `json:"allowed_comment_kinds"`
 	CanAssign           bool             `json:"can_assign"`
+	CanMarkSpam         bool             `json:"can_mark_spam"`
 	Similar             SimilarView      `json:"similar"`
 }
 

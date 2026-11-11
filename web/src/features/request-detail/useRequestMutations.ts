@@ -31,6 +31,15 @@ export function useRequestMutations(id: number) {
       mutationFn: (b: { department_id?: number; assignee_id?: number | null }) => api.assign(id, b),
       onSuccess,
     }),
+    spam: useMutation({
+      mutationFn: () => api.markSpam(id),
+      onSuccess: () => {
+        // the request is hidden from every view now: drop it from the cache and refresh lists
+        qc.removeQueries({ queryKey: qk.request(id) });
+        qc.invalidateQueries({ queryKey: qk.requests });
+        qc.invalidateQueries({ queryKey: qk.analytics });
+      },
+    }),
     theme: useMutation({
       mutationFn: (b: { theme_id?: number; title?: string }) => api.linkTheme(id, b),
       onSuccess: (r) => {

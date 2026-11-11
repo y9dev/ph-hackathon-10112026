@@ -18,6 +18,7 @@ import {
   Undo2,
   EyeOff,
   Eye,
+  ShieldOff,
 } from 'lucide-react';
 import { api, ApiError } from '@/shared/api/client';
 import { qk } from '@/shared/api/queries';
@@ -49,7 +50,7 @@ import { useUser, isStaff } from '@/features/auth/AuthProvider';
 import { Timeline } from './Timeline';
 import { LifecycleCard } from './LifecycleCard';
 import { Composer, type KindRequest } from './Composer';
-import { AssignDialog, CloseDialog, MoveDialog, ThemeDialog } from './ActionDialogs';
+import { AssignDialog, CloseDialog, MoveDialog, SpamDialog, ThemeDialog } from './ActionDialogs';
 
 export default function RequestDetailPage() {
   const id = Number(useParams().id);
@@ -334,6 +335,8 @@ function StaffActions({ r, onAskQuestion }: { r: RequestDetail; onAskQuestion: (
   const [closing, setClosing] = useState<Status | null>(null);
   const [moving, setMoving] = useState<Status | null>(null);
   const [assign, setAssign] = useState(false);
+  const [spam, setSpam] = useState(false);
+  const spamNavigate = useNavigate();
   const [theme, setTheme] = useState(false);
   // "Запросить уточнение" is a question comment (it sets needs_info), so it follows allowed_comment_kinds.
   const actions = sortActions([
@@ -379,6 +382,11 @@ function StaffActions({ r, onAskQuestion }: { r: RequestDetail; onAskQuestion: (
             {ru.detail.assign}
           </Button>
         )}
+        {r.can_mark_spam && (
+          <Button variant="ghost" className="w-full justify-start" onClick={() => setSpam(true)} icon={<ShieldOff className="h-4 w-4" aria-hidden="true" />}>
+            {ru.detail.spamAction}
+          </Button>
+        )}
         <Button
           variant="ghost"
           className="h-auto! min-h-10 w-full justify-start whitespace-normal! py-2 text-left"
@@ -391,6 +399,7 @@ function StaffActions({ r, onAskQuestion }: { r: RequestDetail; onAskQuestion: (
       {closing && <CloseDialog key={closing} request={r} status={closing} open onOpenChange={(o) => !o && setClosing(null)} />}
       {moving && <MoveDialog key={moving} request={r} to={moving} open onOpenChange={(o) => !o && setMoving(null)} />}
       {assign && <AssignDialog request={r} open onOpenChange={setAssign} />}
+      {spam && <SpamDialog request={r} open onOpenChange={setSpam} onDone={() => spamNavigate('/inbox')} />}
       {theme && <ThemeDialog request={r} open onOpenChange={setTheme} />}
     </Card>
   );

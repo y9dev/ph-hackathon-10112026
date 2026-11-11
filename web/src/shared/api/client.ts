@@ -175,6 +175,9 @@ export const api = {
 
   // CR2: anonymous author access by secret token (no session). The token travels only in
   // request bodies / the X-Anonymous-Token header, never in URLs.
+  // The browser sends its anonymous-token cookie; the server answers whether this browser may write anonymously.
+  anonymousStatus: () => request<{ anonymous_allowed: boolean }>('/anonymous/status', { method: 'POST', silent401: true }),
+  markSpam: (id: number) => request<void>(`/requests/${id}/spam`, { method: 'POST' }),
   anonymousLookup: (token: string) =>
     request<RequestDetail>('/anonymous/lookup', { method: 'POST', body: { token }, silent401: true }),
   anonymousComment: (token: string, body: string) =>

@@ -143,3 +143,25 @@ Manager visibility: customer sketch has "Manager sees all company requests"; in 
 
 ## 10. Decisions (short ADRs)
 - D1 SQLite first, portable SQL, store interfaces. · D2 Server-side sessions. · D3 Modular monolith with event bus, no network boundaries. · D4 Similarity = Jaccard over normalized tokens (RU stemming-lite: lowercase, strip punctuation, stop-words, 5-char prefix), no ML; threshold tuned on seed data. · D5 Anonymity by contract, tested. · D6 SPA embedded in Go binary. · D7 UI strings centralized (`shared/i18n/ru.ts`) for future languages.
+
+## 14. Spam moderation, browser cookies and unowned requests (TZ 2.6, 3.3, 3.5)
+
+Applies to the current build (migration `0005_spam`). Overrides earlier sections where they conflict.
+
+- **Mark as spam.** Only anonymous requests. Allowed for admins and for the current owner of the request
+  (`POST /api/v1/requests/{id}/spam`, 204). The request gets `spam_hidden = 1` and disappears from every list,
+  detail view and deadline notification. The SHA-256 hash of its token is written to `anon_spam_blocks`.
+  The token and the author are never stored or logged.
+- **Browser cookies.** A successful anonymous submission sets an HttpOnly, SameSite=Strict cookie
+  `mv_anon_tokens` with the browser's last 5 canonical tokens. Cookies are not stored on the server.
+- **Status check on site open.** `POST /api/v1/anonymous/status` reads `mv_anon_tokens`, hashes the tokens and
+  compares them with the block list. Nothing is written except the `mv_anon_blocked=1` cookie when a blocked token
+  is found. Response: `{"anonymous_allowed": bool}`. The UI disables the anonymous switch; the server refuses an
+  anonymous submission from a browser with `mv_anon_blocked` (400 on `is_anonymous`).
+- **Known bypasses (stated as limits, not hidden).** Clearing cookies, using another browser or device, or a
+  fresh session without the cookie allows anonymous writing again. Blocking is per token and per browser, not per
+  person or IP.
+- **Unowned requests.** A request without an assignee is visible to every staff member in the inbox. Only the
+  admin, or the current owner after assignment, can set the department and assignee (`POST /requests/{id}/assign`).
+- **Removed:** the start-up request to an external visit counter (`STARTUP_PING`). The server makes no outbound
+  calls except Telegram when the bot token is set.

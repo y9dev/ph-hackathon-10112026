@@ -139,7 +139,7 @@ func scanDetail(sc scanner) (DetailRow, string, error) {
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, q db.Querier, id int64) (DetailRow, error) {
-	d, _, err := scanDetail(q.QueryRowContext(ctx, detailSelect+` WHERE r.id = ?`, id))
+	d, _, err := scanDetail(q.QueryRowContext(ctx, detailSelect+` WHERE r.id = ? AND r.spam_hidden = 0`, id))
 	if db.IsNoRows(err) {
 		return DetailRow{}, ErrNotFound
 	}
@@ -150,7 +150,7 @@ func (s *SQLiteStore) Get(ctx context.Context, q db.Querier, id int64) (DetailRo
 }
 
 func (s *SQLiteStore) ByTokenHash(ctx context.Context, q db.Querier, hash string) (DetailRow, string, error) {
-	d, stored, err := scanDetail(q.QueryRowContext(ctx, detailSelect+` WHERE r.anon_token_hash = ? AND r.is_anonymous = 1`, hash))
+	d, stored, err := scanDetail(q.QueryRowContext(ctx, detailSelect+` WHERE r.anon_token_hash = ? AND r.is_anonymous = 1 AND r.spam_hidden = 0`, hash))
 	if db.IsNoRows(err) {
 		return DetailRow{}, "", ErrNotFound
 	}
@@ -180,7 +180,7 @@ func (s *SQLiteStore) HasEvent(ctx context.Context, q db.Querier, requestID int6
 
 // where builds the WHERE clause; includeTab/includeStatus control tab/status filters (counters ignore them).
 func where(f ListFilter, includeTabStatus bool) (string, []any) {
-	conds := []string{"(" + f.ScopeSQL + ")"}
+	conds := []string{"(" + f.ScopeSQL + ")", "r.spam_hidden = 0"}
 	args := append([]any{}, f.ScopeArgs...)
 	now := db.Unix(f.Now)
 	if includeTabStatus {
@@ -404,7 +404,7 @@ func (s *SQLiteStore) Attachment(ctx context.Context, id int64) (AttachmentRow, 
 
 func (s *SQLiteStore) OverdueCandidates(ctx context.Context, now time.Time) ([]Row, error) {
 	n := db.Unix(now)
-	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowCols+rowFrom+` WHERE `+overdueSQL+` ORDER BY r.id`, n, n)
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowCols+rowFrom+` WHERE r.spam_hidden = 0 AND `+overdueSQL+` ORDER BY r.id`, n, n)
 	if err != nil {
 		return nil, fmt.Errorf("query overdue: %w", err)
 	}
@@ -459,4 +459,39 @@ func (s *SQLiteStore) ThemeAccessible(ctx context.Context, q db.Querier, themeID
 		EXISTS(SELECT 1 FROM themes WHERE id = ? AND created_by = ?)
 		OR EXISTS(SELECT 1 FROM requests r WHERE r.theme_id = ? AND (`+scopeSQL+`))`, args...).Scan(&n)
 	return n == 1, err
+}
+
+func (s *SQLiteStore) MarkSpam(ctx context.Context, q db.Querier, id int64) (string, error) {
+	if _, err := q.ExecContext(ctx, `UPDATE requests SET spam_hidden = 1 WHERE id = ?`, id); err != nil {
+		return "", fmt.Errorf("mark spam: %w", err)
+	}
+	var hash string
+	if err := q.QueryRowContext(ctx, `SELECT IFNULL(anon_token_hash, '') FROM requests WHERE id = ?`, id).Scan(&hash); err != nil {
+		return "", fmt.Errorf("spam token hash: %w", err)
+	}
+	return hash, nil
+}
+
+func (s *SQLiteStore) BlockTokens(ctx context.Context, q db.Querier, hashes []string, at time.Time) error {
+	for _, h := range hashes {
+		if _, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO anon_spam_blocks(token_hash, blocked_at) VALUES (?, ?)`, h, db.Unix(at)); err != nil {
+			return fmt.Errorf("block token: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) AnyTokenBlocked(ctx context.Context, q db.Querier, hashes []string) (bool, error) {
+	if len(hashes) == 0 {
+		return false, nil
+	}
+	args := make([]any, len(hashes))
+	for i, h := range hashes {
+		args[i] = h
+	}
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM anon_spam_blocks WHERE token_hash IN (`+db.Placeholders(len(hashes))+`)`, args...).Scan(&n); err != nil {
+		return false, fmt.Errorf("check token block: %w", err)
+	}
+	return n > 0, nil
 }

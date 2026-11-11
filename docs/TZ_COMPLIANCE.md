@@ -1,7 +1,7 @@
 # TZ compliance matrix
 
 Legend: ✅ built & verified · 🟡 designed/documented only (allowed by TZ) · ⏳ pending · ⚠️ partially verified. Verified = evidence in `docs/evidence/`.
-Last status update: 2026-11-10, independent certification run (`docs/evidence/certify-1.md`, scorecard `docs/QUALITY_SCORECARD.md`).
+Last status update: 2026-11-11 (spam moderation, unowned-request visibility, TZ 4.1 deliverables; the 2026-11-10 certification run is in `docs/evidence/certify-1.md`, scorecard `docs/QUALITY_SCORECARD.md`).
 
 | TZ § | Requirement | Where addressed | Status |
 |---|---|---|---|
@@ -23,7 +23,7 @@ Last status update: 2026-11-10, independent certification run (`docs/evidence/ce
 | 2.5 | Describe: routing, status/result, author awareness, no-loss, recurring | PRD §6, ARCH §4, §12 | ✅ docs |
 | 2.5 | Simplified routing & test data allowed | Rules table + seed | ✅ synthetic seed; rules via `/admin/routing-rules` |
 | 2.6 | Define who creates/views/edits/handles; what each sees | ARCH §5 | ✅ docs |
-| 2.6 | Anonymity: purpose, limits, effect | PRD §6.1, UI copy | ✅ API smoke: no author identity in admin/manager detail, list, CSV; TestAnonymity (pseudonymous, limits disclosed) |
+| 2.6 | Anonymity: purpose, limits, effect; spam moderation | PRD §6.1, ARCH §14, DEMO_SCRIPT «Ограничения», UI copy | ✅ API smoke: no author identity in admin/manager detail, list, CSV; TestAnonymity; TestAnonymousSpamBlockAndBrowserStatus (block list stores hashes only, browser status check) |
 | 2.7 | Value + metrics (reviewed share, time to first response, outcome share, implemented count) | Analytics module | ✅ `/analytics/summary` kpis + analytics page (certify-1) |
 | 3.1 | Problem, users, scenarios, MVP rationale, limits/assumptions, validation method | PRD §1–9 | ✅ docs |
 | 3.2 | Interface: screens + transitions; interactive prototype of key scenarios | Working UI + `UX_SPECIFICATION.md` flow map | ✅ running app, screenshots in `evidence/screens/` |
@@ -31,8 +31,8 @@ Last status update: 2026-11-10, independent certification run (`docs/evidence/ce
 | 3.4 | Integration: purpose, data, direction, method, open questions | INTEGRATIONS | ✅ docs (webhook "built" claim is inaccurate, see scorecard) |
 | 3.5 | Test/synthetic data; protection approach | Seed; ARCH §8 | ✅ synthetic seed; security headers, CSRF origin check, upload checks verified (certify-1) |
 | 3.6 | MVP vs extensions vs separate-research items | ARCH §9 / PRD §5 | ✅ docs |
-| 4.1 | Deliverables 1–6 (concept, users/scenarios, prototype, tech concept, roadmap, demo with limits) | PRD, UX spec, ARCH, running app, README, ROADMAP, DEMO_SCRIPT | ⚠️ all present; pitch deck not checked |
+| 4.1 | Deliverables 1–6 (concept, users/scenarios, prototype, tech concept, roadmap, demo with limits) | PRD, UX spec, ARCH (incl. §14), running app, README, ROADMAP, DEMO_SCRIPT (with limits), pitch deck (slide 7 «Ограничения»), backup video `pitch/demo-backup.mp4` | ✅ present; the demo script and the limits are written for the current build |
 | 4.2 | MVP extras: repo, run instructions, features & limits list, test data, e2e demo | README, seed, Playwright | ✅ clean-clone Docker build + E2E (see scorecard) |
 | 4.2 | Demo distinguishes implemented / simulated / planned | README feature status table + demo script | ✅ README table verified row by row (scorecard) |
 | 5 | Record assumptions and their impact | PRD §9 | ✅ docs |
-| 6 | Answer 3 key questions (value; how it works; how to develop/integrate) | DEMO_SCRIPT "Ответы на три ключевых вопроса" + README | ⚠️ present in DEMO_SCRIPT; pitch not checked |
+| 6 | Answer 3 key questions (value; how it works; how to develop/integrate) | DEMO_SCRIPT «Ответы на три ключевых вопроса» + pitch slides 3–5 | ✅ present in DEMO_SCRIPT and in the pitch |

@@ -179,6 +179,12 @@ type Store interface {
 	Get(ctx context.Context, q db.Querier, id int64) (DetailRow, error)
 	// ByTokenHash returns the anonymous request with this token hash and the stored hash (ErrNotFound otherwise).
 	ByTokenHash(ctx context.Context, q db.Querier, hash string) (DetailRow, string, error)
+	// MarkSpam hides the request from all lists and details and returns its anonymous token hash ("" if none).
+	MarkSpam(ctx context.Context, q db.Querier, id int64) (string, error)
+	// BlockTokens stores SHA-256 hashes of blocked anonymous tokens (idempotent).
+	BlockTokens(ctx context.Context, q db.Querier, hashes []string, at time.Time) error
+	// AnyTokenBlocked reports whether one of the token hashes is on the block list.
+	AnyTokenBlocked(ctx context.Context, q db.Querier, hashes []string) (bool, error)
 	Save(ctx context.Context, q db.Querier, r DetailRow) error
 	HasEvent(ctx context.Context, q db.Querier, requestID int64, kind, meta string) (bool, error)
 

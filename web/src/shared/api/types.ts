@@ -204,6 +204,7 @@ export interface RequestDetail extends RequestSummary {
   allowed_statuses: Status[];
   allowed_comment_kinds: CommentKind[];
   can_assign: boolean;
+  can_mark_spam: boolean;
   similar: { count: number; items?: SimilarItem[] | null };
 }
 

@@ -567,3 +567,46 @@ export function ThemeDialog({ request, open, onOpenChange }: { request: RequestD
     </Dialog>
   );
 }
+
+/** Marks an anonymous request as spam: it is hidden everywhere and its token is blocked (admin or owner). */
+export function SpamDialog({ request, open, onOpenChange, onDone }: { request: RequestDetail; open: boolean; onOpenChange: (o: boolean) => void; onDone: () => void }) {
+  const [error, setError] = useState<string>();
+  const m = useRequestMutations(request.id).spam;
+  const toast = useToast();
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (m.isPending) return;
+    m.mutate(undefined, {
+      onSuccess: () => {
+        toast.success(ru.detail.spamDone);
+        onOpenChange(false);
+        onDone();
+      },
+      onError: (err) => setError(err.message),
+    });
+  }
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      busy={m.isPending}
+      title={ru.detail.spamTitle}
+      description={ru.detail.spamLead}
+      footer={
+        <>
+          <Button onClick={() => onOpenChange(false)} disabled={m.isPending}>
+            {ru.common.cancel}
+          </Button>
+          <Button type="submit" form="spam-form" variant="danger" loading={m.isPending}>
+            {ru.detail.spamSubmit}
+          </Button>
+        </>
+      }
+    >
+      <form id="spam-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
+        {error && <FieldError id="spam-error">{error}</FieldError>}
+      </form>
+    </Dialog>
+  );
+}
