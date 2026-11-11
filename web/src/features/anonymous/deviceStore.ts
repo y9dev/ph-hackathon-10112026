@@ -51,6 +51,15 @@ export function removeAnonymousRequest(token: string): void {
   write(loadAnonymousRequests().filter((x) => x.token !== token));
 }
 
+/** Forgets every anonymous request saved on this device (used on explicit sign-out only). */
+export function clearAnonymousRequests(): void {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // storage unavailable: nothing to clear
+  }
+}
+
 /** Canonical form for comparison/validation: upper case, separators removed, O→0, I/L→1 (as the server). */
 export function canonicalToken(input: string): string {
   return input

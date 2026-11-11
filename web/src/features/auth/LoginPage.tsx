@@ -12,7 +12,7 @@ import { homePath, useAuth } from './AuthProvider';
 
 export const loginSchema = z.object({
   email: z.string().trim().min(1, ru.auth.emailRequired).email(ru.auth.emailInvalid),
-  password: z.string().min(1, ru.auth.passwordRequired),
+  password: z.string().trim().min(1, ru.auth.passwordRequired),
 });
 type LoginForm = z.infer<typeof loginSchema>;
 
@@ -29,7 +29,7 @@ export default function LoginPage() {
 
   const form = useForm<LoginForm>({ resolver: zodResolver(loginSchema), defaultValues: { email: '', password: '' } });
   const login = useMutation({
-    mutationFn: (v: LoginForm) => api.login(v.email.trim(), v.password),
+    mutationFn: (v: LoginForm) => api.login(v.email.trim(), v.password.trim()),
     onSuccess: (u) => {
       setUser(u);
       navigate(next ?? homePath(u.role), { replace: true });

@@ -4,6 +4,7 @@ import { api, ApiError, onUnauthorized } from '@/shared/api/client';
 import { qk, shouldRetry } from '@/shared/api/queries';
 import type { Role, User } from '@/shared/api/types';
 import { clearAllDrafts } from '@/features/submit/draft';
+import { clearAnonymousRequests, clearCurrentToken } from '@/features/anonymous/deviceStore';
 
 interface AuthState {
   user: User | null;
@@ -58,6 +59,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await api.logout();
         } finally {
           clearAllDrafts();
+          // Explicit sign-out forgets the anonymous tokens kept on this device. A session that
+          // expired (inactivity, 401 via onUnauthorized) does not reach this code and keeps them.
+          clearAnonymousRequests();
+          clearCurrentToken();
           setExpired(false);
           qc.setQueryData(qk.me, null);
           qc.removeQueries({ predicate: (q) => q.queryKey[0] !== qk.me[0] });
