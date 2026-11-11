@@ -6,13 +6,7 @@
 
 ## Быстрый запуск
 
-### Вариант 1. Docker (рекомендуется для жюри)
-```bash
-docker compose up --build
-```
-Откройте http://localhost:8080. Данные синтетические, загружаются автоматически при первом запуске.
-
-### Вариант 2. Go + npm
+### Вариант 1. Go + npm (рекомендуется для демо)
 Нужны Go 1.26+ и Node.js 22+ (вместе с npm). Установка для Windows:
 - Go: https://go.dev/dl/ (установщик `.msi` для Windows)
 - Node.js: https://nodejs.org/en/download (установщик `.msi` для Windows)
@@ -39,6 +33,13 @@ cd backend
 DEMO_MODE=true go run ./cmd/server --seed
 ```
 Откройте http://localhost:8080.
+
+### Вариант 2. Docker (не рекомендуется для демо)
+Требует работающий Docker Desktop; первая сборка долгая (скачивание образов и зависимостей), а при сбое движка Docker Desktop сборка может упасть.
+```bash
+docker compose up --build
+```
+Откройте http://localhost:8080. Данные синтетические, загружаются автоматически при первом запуске.
 
 Разработка: сервер из шага 2 в одном терминале, `cd web && npm run dev` в другом (http://localhost:5173, прокси на :8080). Интерфейс без бэкенда: `cd web && npm run dev:mock`. Тот же запуск короче через `make`: `make web-build`, `make backend-demo`.
 
