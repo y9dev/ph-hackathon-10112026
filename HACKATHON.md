@@ -15,7 +15,7 @@ Roles: @all → всё
 - [x] 7. Build — готово до этого прогона
 - [x] 8. Polish + freeze — готово до этого прогона (`docs/QUALITY_SCORECARD.md`)
 - [ ] 9. Repo README — существует; не переписывалось в этом прогоне
-- [x] 10. Pitch story — `pitch/PITCH.md` (5 минут + слот демо)
+- [x] 10. Pitch story — `pitch/PITCH.md` (план) и `pitch/SCRIPT.md` (полный текст, 5 минут + слот демо)
 - [x] 11. Slides — `pitch/deck.html` + PDF
 - [ ] 12. Demo video — исключено пользователем («демо уже готово»)
 - [x] 13. Rehearsal — вопросы жюри и ответы в `pitch/QA.md`
