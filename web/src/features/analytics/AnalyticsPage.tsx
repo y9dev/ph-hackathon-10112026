@@ -74,7 +74,7 @@ export default function AnalyticsPage() {
   const user = useUser();
   const meta = useMeta();
   const [sp, setSp] = useSearchParams();
-  const period = (PERIODS.includes(sp.get('period') as Period) ? sp.get('period') : '30') as Period;
+  const period = (PERIODS.includes(sp.get('period') as Period) ? sp.get('period') : 'all') as Period;
   const dept = sp.get('department') ?? ALL;
   const range = useMemo(() => periodRange(period), [period]);
   const params = { ...range, department_id: dept === ALL ? undefined : Number(dept) };
@@ -117,7 +117,7 @@ export default function AnalyticsPage() {
             aria-labelledby="period-label"
             className="sm:w-[440px]"
             value={period}
-            onChange={(v) => setParam('period', v === '30' ? null : v)}
+            onChange={(v) => setParam('period', v === 'all' ? null : v)}
             options={PERIODS.map((p) => ({ value: p, label: ru.analytics.periods[p] }))}
           />
         </div>

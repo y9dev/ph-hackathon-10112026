@@ -82,7 +82,7 @@ export function StackedBar({ data }: { data: BarDatum[] }) {
               </span>
               <span className="tabular shrink-0 text-muted">
                 <span className="font-semibold text-text">{d.value}</span>
-                {total > 0 && <span className="ml-1 text-xs">{Math.round((d.value / total) * 100)}%</span>}
+                {total > 0 && <span className="ml-1 text-xs">({Math.round((d.value / total) * 100)}%)</span>}
               </span>
             </>
           );
