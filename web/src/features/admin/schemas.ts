@@ -2,14 +2,14 @@ import { z } from 'zod';
 import { ru } from '@/shared/i18n/ru';
 
 const hours = z
-  .number({ invalid_type_error: ru.admin.hoursInt })
+  .number({ error: ru.admin.hoursInt })
   .int(ru.admin.hoursInt)
   .min(1, ru.admin.hoursMin);
 
 export const ruleSchema = z.object({
-  category_id: z.number({ invalid_type_error: ru.submit.errors.category }).int().positive(ru.submit.errors.category),
+  category_id: z.number({ error: ru.submit.errors.category }).int().positive(ru.submit.errors.category),
   request_type: z.enum(['problem', 'idea', 'feedback']).nullable(),
-  department_id: z.number({ invalid_type_error: ru.detail.assignDeptRequired }).int().positive(ru.detail.assignDeptRequired),
+  department_id: z.number({ error: ru.detail.assignDeptRequired }).int().positive(ru.detail.assignDeptRequired),
   assignee_user_id: z.number().int().positive().nullable(),
   first_response_hours: hours,
   resolution_hours: hours,
@@ -21,7 +21,7 @@ export const categorySchema = z.object({
   name: z.string().trim().min(1, ru.admin.catNameRequired).max(80),
   description: z.string().trim().max(300),
   icon: z.string(),
-  sort: z.number({ invalid_type_error: ru.admin.hoursInt }).int(),
+  sort: z.number({ error: ru.admin.hoursInt }).int(),
   active: z.boolean(),
 });
 export type CategoryValues = z.infer<typeof categorySchema>;

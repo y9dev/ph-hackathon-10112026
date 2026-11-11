@@ -10,9 +10,9 @@ export const SOLUTION_MAX = 2000;
 export function makeSubmitSchema(limits: Pick<MetaLimits, 'title_max' | 'body_max'>) {
   const e = ru.submit.errors;
   return z.object({
-    type: z.enum(['problem', 'idea', 'feedback'], { errorMap: () => ({ message: e.type }) }),
+    type: z.enum(['problem', 'idea', 'feedback'], { error: e.type }),
     priority: z.enum(['low', 'medium', 'high']),
-    category_id: z.number({ invalid_type_error: e.category, required_error: e.category }).int().positive(e.category),
+    category_id: z.number({ error: e.category }).int().positive(e.category),
     title: z.string().trim().min(TITLE_MIN, e.titleMin(TITLE_MIN)).max(limits.title_max, e.titleMax(limits.title_max)),
     body: z.string().trim().min(BODY_MIN, e.bodyMin(BODY_MIN)).max(limits.body_max, e.bodyMax(limits.body_max)),
     proposed_solution: z.string().max(SOLUTION_MAX, e.solutionMax(SOLUTION_MAX)),
