@@ -36,16 +36,16 @@ manually to «Администратор документов» (timeline shows 
 Departments: Закупки, Продажи, Проектирование, Бухгалтерия, Управление проектами, IT (no head: the dataset has no
 «Руководитель IT»), Административный отдел и HR, Руководство направлений.
 
-Accounts, password `Demo1234!` for all (e-mail = `<login>@modus.demo`); the first six are the quick logins:
+Display names are invented pseudo full names (Kazakh and Russian); the dataset role is stored as the job title. Accounts, password `Demo1234!` for all (e-mail = `<login>@modus.demo`); the first six are the quick logins:
 
 | Role | Name | Email |
 |---|---|---|
-| author (employee) | Сотрудник закупок | purchasing.employee@modus.demo |
-| author (employee) | Менеджер по продажам | sales.manager@modus.demo |
-| responsible (head of Закупки) | Руководитель закупок | purchasing.head@modus.demo |
-| responsible (IT) | IT-специалист | it.specialist@modus.demo |
-| manager of another department (observer demo) | Руководитель проектирования | design.head@modus.demo |
-| admin | Администратор системы | admin@modus.demo |
+| author (employee) | Алексей Петров (сотрудник закупок) | purchasing.employee@modus.demo |
+| author (employee) | Данияр Сулейменов (менеджер по продажам) | sales.manager@modus.demo |
+| responsible (head of Закупки) | Ермек Жумабаев (руководитель закупок) | purchasing.head@modus.demo |
+| responsible (IT) | Игорь Смирнов (IT-специалист) | it.specialist@modus.demo |
+| manager of another department (observer demo) | Арман Кусаинов (руководитель проектирования) | design.head@modus.demo |
+| admin | Дамир Ермеков (администратор системы) | admin@modus.demo |
 | other authors | Сотрудник проектирования / бухгалтерии / офиса, Координатор проекта, Руководитель проекта | design.employee@, accounting.employee@, office.employee@, project.coordinator@, project.lead@ |
 | other responsibles | Руководитель направления, Ответственный за номенклатуру / обучение / процессы / договоры, Руководитель бухгалтерии / подразделения / продаж / проектов, Административный руководитель, HR / внутренние коммуникации, Администратор документов | direction.head@, catalog.owner@, training.owner@, process.owner@, contracts.owner@, accounting.head@, unit.head@, sales.head@, projects.head@, admin.head@, hr.comms@, documents.admin@ |
 

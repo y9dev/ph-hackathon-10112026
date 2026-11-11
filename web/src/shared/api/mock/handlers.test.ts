@@ -45,7 +45,7 @@ describe('mock seed = dataset (CR1)', () => {
     expect(db.requests).toHaveLength(20);
     expect(db.requests.map((r) => r.number)).toEqual(Array.from({ length: 20 }, (_, i) => `MV-${String(i + 1).padStart(4, '0')}`));
     expect(db.categories).toHaveLength(18);
-    expect(db.users.find((u) => u.email === 'purchasing.employee@modus.demo')?.name).toBe('Сотрудник закупок');
+    expect(db.users.find((u) => u.email === 'purchasing.employee@modus.demo')?.title).toBe('Сотрудник закупок');
     expect(db.requests.filter((r) => r.type === 'feedback')).toHaveLength(1);
     expect(new Set(db.requests.map((r) => r.priority))).toEqual(new Set(['low', 'medium', 'high']));
     // A-005, A-017, A-018 are anonymous: no author link stored.
@@ -57,12 +57,12 @@ describe('mock seed = dataset (CR1)', () => {
     const { call } = setup();
     const r = call<{ users: { name: string }[] }>('GET', '/auth/demo-users').body;
     expect(r.users.map((u) => u.name)).toEqual([
-      'Сотрудник закупок',
-      'Менеджер по продажам',
-      'Руководитель закупок',
-      'IT-специалист',
-      'Руководитель проектирования',
-      'Администратор системы',
+      'Алексей Петров',
+      'Данияр Сулейменов',
+      'Ермек Жумабаев',
+      'Игорь Смирнов',
+      'Арман Кусаинов',
+      'Дамир Ермеков',
     ]);
   });
 });

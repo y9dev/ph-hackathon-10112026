@@ -84,9 +84,9 @@ func TestCRSeedDataset(t *testing.T) {
 			t.Errorf("%s: %s/%s/%s want %v", r.number, r.typ, r.prio, r.status, w)
 		}
 	}
-	for _, name := range queryStrings(t, e, `SELECT name FROM users`) {
+	for _, name := range queryStrings(t, e, `SELECT title FROM users`) {
 		if name != "Администратор системы" && !strings.Contains(ds, name) {
-			t.Errorf("user %q is not a dataset role", name)
+			t.Errorf("user title %q is not a dataset role", name)
 		}
 	}
 	if n := countRows(t, e, `SELECT COUNT(*) FROM users`); n != 23 {

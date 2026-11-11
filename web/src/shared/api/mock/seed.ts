@@ -1,6 +1,6 @@
 // Demo data of the in-browser mock = the backend seed (backend/internal/seed, CR1): exactly the 20
 // requests A-001…A-020 of docs/DATASET.md (MV-0001 = A-001 …), the 18 dataset topic labels as
-// categories, the dataset's conditional roles as users (display name = role title, no personal
+// categories, the dataset's conditional roles as users (title = role, display name = invented pseudo full name, no real personal
 // names). Only test dates are added, relative to "now", so SLA states look realistic.
 import type { Priority, RequestType, Status } from '../types';
 import type { MCategory, MComment, MDept, MEvent, MockDb, MNotification, MRequest, MRule, MUser } from './model';
@@ -64,6 +64,33 @@ const deptSeed: [string, string][] = [
   ['Руководство направлений', 'direction.head'],
 ];
 
+/** Invented pseudo full names (Kazakh and Russian); the dataset role stays in `title`. */
+const FULL_NAMES: Record<string, string> = {
+  'admin': 'Дамир Ермеков',
+  'purchasing.employee': 'Алексей Петров',
+  'design.employee': 'Асель Нурпеисова',
+  'accounting.employee': 'Ольга Васильева',
+  'sales.manager': 'Данияр Сулейменов',
+  'project.coordinator': 'Мадина Ахметова',
+  'project.lead': 'Сергей Захаров',
+  'office.employee': 'Гульназ Кенжебаева',
+  'purchasing.head': 'Ермек Жумабаев',
+  'direction.head': 'Татьяна Морозова',
+  'catalog.owner': 'Нурлан Оспанов',
+  'training.owner': 'Айнур Бекмуратова',
+  'accounting.head': 'Елена Соколова',
+  'process.owner': 'Руслан Касымов',
+  'it.specialist': 'Игорь Смирнов',
+  'unit.head': 'Бауыржан Тлеуов',
+  'contracts.owner': 'Жанар Маматова',
+  'sales.head': 'Андрей Козлов',
+  'projects.head': 'Динара Искакова',
+  'design.head': 'Арман Кусаинов',
+  'admin.head': 'Наталья Громова',
+  'hr.comms': 'Салтанат Дюсенова',
+  'documents.admin': 'Виктор Лебедев',
+};
+
 const userSeed: [string, string, MUser['role'], number][] = [
   ['admin', 'Администратор системы', 'admin', D.it],
   ['purchasing.employee', 'Сотрудник закупок', 'employee', D.purchasing],
@@ -90,15 +117,15 @@ const userSeed: [string, string, MUser['role'], number][] = [
   ['documents.admin', 'Администратор документов', 'manager', D.adminHR],
 ];
 
-export const users: MUser[] = userSeed.map(([login, name, role, dept], i) => ({
+export const users: MUser[] = userSeed.map(([login, title, role, dept], i) => ({
   id: i + 1,
-  name,
+  name: FULL_NAMES[login]!,
   email: login + DOMAIN,
   password: DEMO_PASSWORD,
   role,
   department_id: dept,
   active: true,
-  title: name,
+  title,
 }));
 const uid = (login: string) => users.find((u) => u.email === login + DOMAIN)!.id;
 

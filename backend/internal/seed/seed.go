@@ -87,12 +87,12 @@ func (s *seeder) people(hash string) error {
 	created := db.Unix(s.now.AddDate(0, 0, -90))
 	for _, u := range users {
 		id, err := s.exec(`INSERT INTO users(email, name, title, password_hash, role, department_id, active, created_at) VALUES (?,?,?,?,?,?,1,?)`,
-			u.login+Domain, u.name, u.name, hash, u.role, s.deptIDs[u.dept], created)
+			u.login+Domain, fullNames[u.login], u.name, hash, u.role, s.deptIDs[u.dept], created)
 		if err != nil {
 			return err
 		}
 		s.userIDs[u.login] = id
-		s.names[u.login] = u.name
+		s.names[u.login] = fullNames[u.login]
 		if u.role == "admin" && s.adminID == 0 {
 			s.adminID = id
 		}

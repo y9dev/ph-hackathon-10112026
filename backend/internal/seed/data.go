@@ -2,7 +2,7 @@ package seed
 
 // CR1: every value below comes from docs/DATASET.md (extract of spec/Датасет.docx). Request
 // texts are kept verbatim; titles are short headings derived from the first clause. Authors and
-// responsibles are the dataset's conditional roles (display name = role title, no personal names).
+// responsibles are the dataset's conditional roles (title = role); display names are invented pseudo names.
 // Only test dates (created_at, first response, closing times) are added, as the dataset permits.
 
 // DemoPassword is the password of every seeded account.
@@ -50,7 +50,7 @@ var departments = []deptSeed{
 }
 
 type userSeed struct {
-	login, name, role string // name = the dataset's conditional role
+	login, name, role string // name = the dataset's conditional role (stored as the job title)
 	dept              int
 }
 
@@ -290,4 +290,31 @@ var requestSeeds = []reqSeed{
 		body:  "Предлагаю публиковать краткий обзор завершённых внутренних улучшений, чтобы сотрудники видели результат направленных предложений.",
 		note:  "Рассмотреть формат квартальной подборки без конфиденциальных сведений.",
 		ageH:  4*24 + 2}, // 72 h SLA missed: overdue
+}
+
+// fullNames maps a login to an invented Kazakh/Russian full name (display name); the role stays in users.title.
+var fullNames = map[string]string{
+	"admin":               "Дамир Ермеков",
+	"purchasing.employee": "Алексей Петров",
+	"design.employee":     "Асель Нурпеисова",
+	"accounting.employee": "Ольга Васильева",
+	"sales.manager":       "Данияр Сулейменов",
+	"project.coordinator": "Мадина Ахметова",
+	"project.lead":        "Сергей Захаров",
+	"office.employee":     "Гульназ Кенжебаева",
+	"purchasing.head":     "Ермек Жумабаев",
+	"direction.head":      "Татьяна Морозова",
+	"catalog.owner":       "Нурлан Оспанов",
+	"training.owner":      "Айнур Бекмуратова",
+	"accounting.head":     "Елена Соколова",
+	"process.owner":       "Руслан Касымов",
+	"it.specialist":       "Игорь Смирнов",
+	"unit.head":           "Бауыржан Тлеуов",
+	"contracts.owner":     "Жанар Маматова",
+	"sales.head":          "Андрей Козлов",
+	"projects.head":       "Динара Искакова",
+	"design.head":         "Арман Кусаинов",
+	"admin.head":          "Наталья Громова",
+	"hr.comms":            "Салтанат Дюсенова",
+	"documents.admin":     "Виктор Лебедев",
 }
