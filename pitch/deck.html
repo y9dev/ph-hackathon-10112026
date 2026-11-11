@@ -184,7 +184,7 @@ h2{font-size:62px;max-width:1600px}
 .tl .card{min-height:300px}.tl .when{font-family:var(--display);font-size:22px;color:var(--brand);margin-bottom:14px}
 .tl .now{border-color:var(--brand)}
 .reveal{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
-.slide.visible .reveal{opacity:1;transform:none}
+.slide.visible .reveal,.slide.active .reveal{opacity:1;transform:none}
 .reveal:nth-child(2){transition-delay:.12s}.reveal:nth-child(3){transition-delay:.24s}.reveal:nth-child(4){transition-delay:.36s}
 @media print{.reveal{opacity:1!important;transform:none!important}}
 .ctl{position:fixed;right:18px;bottom:14px;color:#6c8a8a;font:14px Onest,sans-serif;z-index:1000}
