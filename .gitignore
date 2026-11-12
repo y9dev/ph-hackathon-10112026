@@ -14,3 +14,6 @@ test-results/
 playwright-report/
 .omc/
 ~$*
+
+# Pitch materials (kept locally)
+pitch/

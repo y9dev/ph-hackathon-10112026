@@ -94,17 +94,20 @@ export class Director {
 
   /** Waits so the viewer can read: roughly 30 ms per character, at least 1.5 s. */
   readingTime(text: string) {
-    return Math.max(1300, text.length * 25);
+    return Math.max(1100, text.length * 22);
   }
 
-  async sceneCard(kicker: string, title: string, sub: string, holdMs = 1200) {
-    await this.page.evaluate(([k, t, s]) => (window as any).__demo.card(k, t, s), [kicker, title, sub]);
+  async sceneCard(kicker: string, title: string, sub: string, holdMs = 800) {
+    await this.page.evaluate(([k, t, s]) => {
+      (window as any).__demo.caption('');
+      (window as any).__demo.card(k, t, s);
+    }, [kicker, title, sub]);
     this.rec.mark('card');
     await sleep(this.page, holdMs);
   }
   async cardOff() {
     await this.page.evaluate(() => (window as any).__demo.cardOff());
-    await sleep(this.page, 700);
+    await sleep(this.page, 450);
   }
 
   async caption(text: string, pos: 'top' | 'bottom' = 'bottom', kicker = '') {
@@ -131,19 +134,19 @@ export class Director {
   }
 
   /** Flies the cursor to an element, slowly. */
-  async moveTo(loc: Locator, ms = 750) {
+  async moveTo(loc: Locator, ms = 600) {
     const { x, y } = await this.center(loc);
     await this.page.evaluate(([px, py, d]) => (window as any).__demo.moveTo(px, py, d), [x, y, ms]);
     await sleep(this.page, 120);
   }
 
-  async click(loc: Locator, ms = 750) {
+  async click(loc: Locator, ms = 600) {
     await this.moveTo(loc, ms);
     await this.page.evaluate(() => (window as any).__demo.press());
     this.rec.mark('click');
     await sleep(this.page, 160);
     await loc.click();
-    await sleep(this.page, 350);
+    await sleep(this.page, 250);
   }
 
   /** Clicks an input and types into it character by character. */
